@@ -146,6 +146,10 @@ function buildPrompt(
   careerGoals: string,
   hints: ParsedUserHints
 ): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("ru-RU", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const timeStr = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
   const goalsSection = [
     personalGoals ? `Личные цели пользователя: ${personalGoals}` : "",
     careerGoals ? `Карьерные цели пользователя: ${careerGoals}` : "",
@@ -162,6 +166,8 @@ function buildPrompt(
     .join("\n");
 
   return `Ты — ассистент по управлению задачами. Проанализируй сообщение пользователя и верни JSON.
+
+ТЕКУЩАЯ ДАТА И ВРЕМЯ: ${dateStr}, ${timeStr}
 
 ${goalsSection ? `ЦЕЛИ ПОЛЬЗОВАТЕЛЯ:\n${goalsSection}\n` : ""}
 СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: ${taskText}
@@ -187,14 +193,14 @@ ${hintsSection ? `УЖЕ ОПРЕДЕЛЕНО ИЗ СООБЩЕНИЯ (не ме
 }
 
 Правила:
-- taskTitle: только суть задачи без инструкций
+- taskTitle: только суть задачи. Если есть дата/время — включи их в название. Например: "Купить хлеб после работы завтра (28 апреля)"
 - taskType:
-  "calendar" — задача привязана к дате/времени/событию (встреча, звонок, дедлайн, напоминание)
-  "simple" — простое одноразовое действие (купить, позвонить, сходить, написать короткое сообщение)
-  "project" — требует нескольких шагов, планирования, времени (разработка, исследование, создание чего-то)
+  "calendar" — ОБЯЗАТЕЛЬНО если в тексте есть: конкретная дата, день недели, слова сегодня/завтра/послезавтра/вечером/утром/в понедельник и т.д., время суток, через N дней/часов, дедлайн, встреча, звонок, напоминание
+  "simple" — простое одноразовое действие БЕЗ привязки ко времени (купить, позвонить без даты, сходить без даты)
+  "project" — требует нескольких шагов, планирования (разработка, исследование, создание чего-то)
 - complexity: "low" | "medium" | "high"
 - duration: "5min" | "30min" | "1hour" | "2hours+"
 - priority: 0=нет, 1=низкий, 2=средний, 3=высокий
 - estimatedMinutes: число
-- subtasks: только для taskType="project". Разбей на логические шаги. Если шаг сложный — добавь вложенные subtasks. Для "calendar" и "simple" — не указывай поле subtasks совсем`;
+- subtasks: только для taskType="project". Для "calendar" и "simple" — не указывай поле subtasks совсем`;
 }

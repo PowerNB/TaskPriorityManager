@@ -38,8 +38,7 @@ export function formatTaskResult(analysis: TaskAnalysis, projectName: string): s
     `🔖 Тип: ${TYPE_LABELS[analysis.taskType] ?? analysis.taskType}`,
     `⚡ Приоритет: ${PRIORITY_LABELS[analysis.priority]}`,
     `🧠 Сложность: ${COMPLEXITY_LABELS[analysis.complexity]}`,
-    `⏱ Время: ${DURATION_LABELS[analysis.duration]}`,
-    `🏷 Теги: ${tags}`,
+    `⏱ Время: ${DURATION_LABELS[analysis.duration] ?? analysis.duration}`,
   ];
 
   if (analysis.taskType === "project" && analysis.subtasks?.length) {

@@ -22,9 +22,13 @@ export function makeConnectConversation(tokenRepo: TickTickTokenRepository) {
 
     await ctx.reply(
       `🔑 Шаг 1/3 — Client ID\n\n` +
-        `Введи Client ID от твоего TickTick приложения.\n\n` +
-        `Получить его можно на https://developer.ticktick.com\n\n` +
-        `Отправь /cancel для отмены:`
+        `Если ещё не создал приложение в TickTick:\n` +
+        `1. Открой https://developer.ticktick.com/manage\n` +
+        `2. Нажми New App\n` +
+        `3. В поле App Service URL укажи свой Redirect URI\n` +
+        `4. Скопируй Client ID и Client Secret\n\n` +
+        `Введи Client ID:\n\n` +
+        `/cancel — отмена`
     );
 
     const clientIdMsg = await conversation.waitFor("message:text");
@@ -35,7 +39,7 @@ export function makeConnectConversation(tokenRepo: TickTickTokenRepository) {
       return;
     }
 
-    await ctx.reply(`🔑 Шаг 2/3 — Client Secret\n\nТеперь введи Client Secret:`);
+    await ctx.reply(`🔑 Шаг 2/3 — Client Secret\n\nТеперь введи Client Secret из того же приложения:\n\n/cancel — отмена`);
 
     const clientSecretMsg = await conversation.waitFor("message:text");
     const clientSecret = clientSecretMsg.message.text.trim();
@@ -52,10 +56,11 @@ export function makeConnectConversation(tokenRepo: TickTickTokenRepository) {
 
     await ctx.reply(
       `🔗 Шаг 3/3 — Авторизация\n\n` +
-        `Перейди по ссылке и разреши доступ:\n${authUrl}\n\n` +
-        `После авторизации скопируй параметр code из URL и отправь его сюда.\n\n` +
-        `Пример: ...?code=XXXXXXXXXXXX&state=...\n\n` +
-        `Отправь только сам код:`
+        `Перейди по ссылке и нажми "Allow":\n${authUrl}\n\n` +
+        `После этого браузер перенаправит тебя на Redirect URI. Скопируй значение параметра code из адресной строки:\n\n` +
+        `...?code=СЮДА_СМОТРЕТЬ&state=...\n\n` +
+        `Отправь только сам code:\n\n` +
+        `/cancel — отмена`
     );
 
     const codeMsg = await conversation.waitFor("message:text");

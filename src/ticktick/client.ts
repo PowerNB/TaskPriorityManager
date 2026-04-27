@@ -87,12 +87,25 @@ export class TickTickClient {
     private readonly userId: number,
     private readonly tokenRepo: TickTickTokenRepository
   ) {
-    this.http = axios.create({ baseURL: BASE_URL });
+    this.http = axios.create({ baseURL: BASE_URL, timeout: 15_000 });
     this.http.interceptors.request.use(async (cfg) => {
       await this.ensureFreshToken();
       cfg.headers.Authorization = `Bearer ${this.accessToken}`;
       return cfg;
     });
+    this.http.interceptors.response.use(
+      (res) => res,
+      async (err) => {
+        const isNetworkError = !err.response && (err.code === "ECONNRESET" || err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT" || err.message?.includes("socket"));
+        const config = err.config;
+        if (isNetworkError && config && !config._retried) {
+          config._retried = true;
+          await new Promise((r) => setTimeout(r, 2000));
+          return this.http.request(config);
+        }
+        return Promise.reject(err);
+      }
+    );
   }
 
   private async ensureFreshToken(): Promise<void> {
