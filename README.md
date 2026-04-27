@@ -39,7 +39,7 @@ npm install
 
 ```bash
 # Установить Ollama: https://ollama.com
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:7b
 ```
 
 ### 3. Настроить переменные окружения
