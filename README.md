@@ -19,7 +19,7 @@ Telegram-бот для управления задачами через TickTick
 ## Требования
 
 - Node.js 20+
-- [Ollama](https://ollama.com) с моделью `qwen2.5:3b`
+- [Ollama](https://ollama.com) с моделью `qwen2.5:7b`
 - Аккаунт TickTick с доступом к [Developer Portal](https://developer.ticktick.com)
 - Telegram Bot Token от [@BotFather](https://t.me/BotFather)
 
