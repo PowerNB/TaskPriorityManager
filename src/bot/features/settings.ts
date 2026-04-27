@@ -6,6 +6,7 @@ import {
   makeSetPersonalGoalsConversation,
   makeSetCareerGoalsConversation,
 } from "../conversations/settings.conversation.js";
+import { settingsMenuKeyboard, mainMenuKeyboard } from "../helpers/keyboards.js";
 
 export function createSettingsFeature(settingsRepo: SettingsRepository): Composer<BotContext> {
   const composer = new Composer<BotContext>();
@@ -23,29 +24,45 @@ export function createSettingsFeature(settingsRepo: SettingsRepository): Compose
     )
   );
 
-  const feature = composer.chatType("private");
+  async function showSettings(ctx: BotContext, edit = false): Promise<void> {
+    const settings = await settingsRepo.findByUserId(ctx.from!.id);
+    const personal = settings?.personalGoals || "не указаны";
+    const career = settings?.careerGoals || "не указаны";
 
-  feature.command("settings", async (ctx) => {
-    const settings = await settingsRepo.findByUserId(ctx.from.id);
-
-    const personalGoals = settings?.personalGoals || "не указаны";
-    const careerGoals = settings?.careerGoals || "не указаны";
-
-    await ctx.reply(
+    const text =
       `⚙️ Настройки\n\n` +
-        `👤 Личные цели:\n${personalGoals}\n\n` +
-        `💼 Карьерные цели:\n${careerGoals}\n\n` +
-        `Что изменить?\n` +
-        `/personal_goals — изменить личные цели\n` +
-        `/career_goals — изменить карьерные цели`
-    );
+      `👤 Личные цели:\n${personal}\n\n` +
+      `💼 Карьерные цели:\n${career}`;
+
+    if (edit) {
+      await ctx.editMessageText(text, { reply_markup: settingsMenuKeyboard() });
+    } else {
+      await ctx.reply(text, { reply_markup: settingsMenuKeyboard() });
+    }
+  }
+
+  composer.command("settings", async (ctx) => showSettings(ctx, false));
+
+  composer.callbackQuery("settings:menu", async (ctx) => {
+    await showSettings(ctx, true);
+    await ctx.answerCallbackQuery();
   });
 
-  feature.command("personal_goals", async (ctx) => {
+  composer.callbackQuery("settings:personal", async (ctx) => {
+    await ctx.answerCallbackQuery();
     await ctx.conversation.enter("setPersonalGoalsConversation");
   });
 
-  feature.command("career_goals", async (ctx) => {
+  composer.callbackQuery("settings:career", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("setCareerGoalsConversation");
+  });
+
+  // Legacy commands
+  composer.command("personal_goals", async (ctx) => {
+    await ctx.conversation.enter("setPersonalGoalsConversation");
+  });
+  composer.command("career_goals", async (ctx) => {
     await ctx.conversation.enter("setCareerGoalsConversation");
   });
 

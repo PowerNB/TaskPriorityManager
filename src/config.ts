@@ -7,7 +7,6 @@ const schema = z.object({
   BOT_TOKEN: z.string().min(1),
   TICKTICK_REDIRECT_URI: z.string().url(),
   DATABASE_URL: z.string().min(1),
-  CLAUDE_PATH: z.string().default("claude"),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error"]).default("info"),
   NODE_ENV: z.enum(["development", "production"]).default("development"),
 });

@@ -11,6 +11,7 @@ import { authMiddleware } from "./middleware/auth.mw.js";
 import { startFeature } from "./features/start.js";
 import { createConnectFeature } from "./features/connect.js";
 import { createSettingsFeature } from "./features/settings.js";
+import { createManualFeature } from "./features/manual.js";
 import { taskFeature } from "./features/task.js";
 import { unhandledFeature } from "./features/unhandled.js";
 import { createPrismaSessionStorage } from "./helpers/session-storage.js";
@@ -50,12 +51,20 @@ export function createBot(prisma: PrismaClient, logger: Logger): Bot<BotContext>
   bot.use(startFeature);
   bot.use(createConnectFeature(ticktickTokenRepo));
   bot.use(createSettingsFeature(settingsRepo));
+  bot.use(createManualFeature(ticktickTokenRepo));
   bot.use(taskFeature);
   bot.use(unhandledFeature);
 
   // Error handler
   bot.catch((err) => {
-    logger.error({ err: err.error, update: err.ctx?.update }, "Unhandled bot error");
+    const e = err.error;
+    if (
+      e instanceof Error &&
+      e.message.includes("message is not modified")
+    ) {
+      return;
+    }
+    logger.error({ err: e, update: err.ctx?.update }, "Unhandled bot error");
   });
 
   return bot;

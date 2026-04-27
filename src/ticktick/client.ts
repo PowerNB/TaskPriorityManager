@@ -1,8 +1,9 @@
 import axios, { AxiosInstance } from "axios";
 import { appConfig } from "../config.js";
 import type { TickTickTokenRepository } from "../bot/repositories/ticktick-token.repository.js";
+import { ALL_LIST_NAMES, LIST_COLORS, DURATION_TAGS } from "./projects.js";
 
-const BASE_URL = "https://api.ticktick.com/api/v2";
+const BASE_URL = "https://api.ticktick.com/open/v1";
 const AUTH_URL = "https://ticktick.com/oauth/authorize";
 const TOKEN_URL = "https://ticktick.com/oauth/token";
 
@@ -13,6 +14,12 @@ export interface TickTickProject {
   kind?: string;
 }
 
+export interface TickTickChecklistItem {
+  title: string;
+  status: 0 | 1; // 0=unchecked, 1=checked
+  sortOrder: number;
+}
+
 export interface TickTickTask {
   id?: string;
   title: string;
@@ -20,6 +27,7 @@ export interface TickTickTask {
   priority?: number; // 0=none, 1=low, 3=medium, 5=high
   tags?: string[];
   content?: string;
+  items?: TickTickChecklistItem[];
 }
 
 export function buildAuthUrl(clientId: string, state: string): string {
@@ -122,12 +130,16 @@ export class TickTickClient {
   }
 
   async getProjects(): Promise<TickTickProject[]> {
-    const response = await this.http.get<TickTickProject[]>("/projects");
+    const response = await this.http.get<TickTickProject[]>("/project");
     return response.data;
   }
 
-  async createProject(name: string): Promise<TickTickProject> {
-    const response = await this.http.post<TickTickProject>("/project", { name, kind: "TASK" });
+  async createProject(name: string, color?: string): Promise<TickTickProject> {
+    const response = await this.http.post<TickTickProject>("/project", {
+      name,
+      color,
+      kind: "TASK",
+    });
     return response.data;
   }
 
@@ -135,7 +147,67 @@ export class TickTickClient {
     const projects = await this.getProjects();
     const existing = projects.find((p) => p.name === name);
     if (existing) return existing;
-    return this.createProject(name);
+    return this.createProject(name, LIST_COLORS[name]);
+  }
+
+  async ensureProjectsExist(): Promise<string[]> {
+    const projects = await this.getProjects();
+    const existingNames = new Set(projects.map((p) => p.name));
+    const created: string[] = [];
+
+    for (const name of ALL_LIST_NAMES) {
+      if (!existingNames.has(name)) {
+        await this.createProject(name, LIST_COLORS[name]);
+        created.push(name);
+      }
+    }
+
+    return created;
+  }
+
+  async makeSubtask(parentId: string, taskId: string, projectId: string): Promise<void> {
+    await axios.post(
+      "https://api.ticktick.com/api/v2/batch/taskParent",
+      [{ parentId, taskId, projectId }],
+      { headers: { Authorization: `Bearer ${this.accessToken}` } }
+    );
+  }
+
+  durationTag(duration: string): string {
+    return DURATION_TAGS[duration] ?? duration;
+  }
+
+  async getProjectTasks(projectId: string): Promise<{ tasks: TickTickTask[] }> {
+    const response = await this.http.get<{ tasks: TickTickTask[] }>(`/project/${projectId}/data`);
+    return response.data;
+  }
+
+  async searchTasks(query: string): Promise<(TickTickTask & { projectId: string })[]> {
+    const projects = await this.getProjects();
+    const results: (TickTickTask & { projectId: string })[] = [];
+    const q = query.toLowerCase();
+
+    for (const project of projects) {
+      try {
+        const data = await this.getProjectTasks(project.id);
+        for (const task of data.tasks ?? []) {
+          if (task.title.toLowerCase().includes(q) || q.includes(task.title.toLowerCase())) {
+            results.push({ ...task, projectId: project.id });
+          }
+        }
+      } catch {
+        // skip inaccessible projects
+      }
+    }
+    return results;
+  }
+
+  async completeTask(taskId: string, projectId: string): Promise<void> {
+    await this.http.post(`/task/${taskId}`, { id: taskId, projectId, status: 2 });
+  }
+
+  async deleteTask(projectId: string, taskId: string): Promise<void> {
+    await this.http.delete(`/task/${projectId}/${taskId}`);
   }
 
   async createTask(task: TickTickTask): Promise<TickTickTask> {

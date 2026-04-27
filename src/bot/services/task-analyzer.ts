@@ -1,5 +1,5 @@
 import { callClaude, parseJson } from "../../claude/client.js";
-import type { TaskAnalysis, ParsedUserHints, TaskDuration, TaskPriority } from "../types/index.js";
+import type { TaskAnalysis, ParsedUserHints, TaskDuration, TaskPriority, Subtask, TaskIntentAnalysis } from "../types/index.js";
 
 const DURATION_HINT_MAP: Record<string, TaskDuration> = {
   "5 мин": "5min",
@@ -27,6 +27,57 @@ const PRIORITY_HINT_MAP: Record<string, TaskPriority> = {
   "низкая": 1,
   "low": 1,
 };
+
+const INTENT_KEYWORDS = {
+  delete:   ["удали", "удалить", "убери", "убрать", "сотри", "стереть"],
+  complete: ["заверши", "завершить", "выполни", "выполнить", "сделал", "готово", "закрой", "закрыть"],
+  edit:     ["измени", "изменить", "переименуй", "переименовать", "обнови", "обновить", "редактируй", "отредактируй", "поменяй", "поменять"],
+};
+
+export function detectIntent(text: string): "delete" | "complete" | "edit" | "create" {
+  const lower = text.toLowerCase();
+  for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
+    if (keywords.some((kw) => lower.includes(kw))) {
+      return intent as "delete" | "complete" | "edit";
+    }
+  }
+  return "create";
+}
+
+export async function analyzeIntent(text: string): Promise<TaskIntentAnalysis> {
+  const intent = detectIntent(text);
+  if (intent === "create") return { intent: "create" };
+
+  const response = await callClaude(
+    `Пользователь написал: "${text}"
+Намерение: ${intent}
+
+Верни ТОЛЬКО валидный JSON:
+{
+  "taskQuery": "название задачи которую нужно найти",
+  "editFields": {
+    "title": "новое название если указано или null",
+    "duration": "5min|30min|1hour|2hours+ если указано или null",
+    "projectName": "название листа если указано или null"
+  },
+  "needsMoreInfo": false
+}
+
+Правила:
+- taskQuery: извлеки название задачи из сообщения (что нужно найти)
+- editFields: только для intent=edit, иначе пусть будет {}
+- needsMoreInfo: true если intent=edit и не указано что именно менять
+- Все null-поля просто не включай в JSON`
+  );
+
+  const raw = parseJson<{
+    taskQuery?: string;
+    editFields?: { title?: string; duration?: string; projectName?: string };
+    needsMoreInfo?: boolean;
+  }>(response);
+
+  return { intent, ...raw };
+}
 
 export function extractUserHints(text: string): ParsedUserHints {
   const lower = text.toLowerCase();
@@ -64,11 +115,13 @@ export async function analyzeTask(
   const prompt = buildPrompt(taskText, personalGoals, careerGoals, hints);
   const response = await callClaude(prompt);
   const raw = parseJson<{
+    taskTitle: string;
+    taskType: string;
     complexity: string;
     duration: string;
     priority: number;
-    tags: string[];
     estimatedMinutes: number;
+    subtasks?: Subtask[];
   }>(response);
 
   const duration = (hints.duration ?? raw.duration) as TaskDuration;
@@ -76,11 +129,14 @@ export async function analyzeTask(
   const complexity = (hints.complexity ?? raw.complexity) as "low" | "medium" | "high";
 
   return {
+    taskTitle: raw.taskTitle,
+    taskType: raw.taskType as TaskAnalysis["taskType"],
     complexity,
     duration,
     priority,
-    tags: raw.tags,
+    tags: [],
     estimatedMinutes: raw.estimatedMinutes,
+    subtasks: raw.subtasks,
   };
 }
 
@@ -105,26 +161,40 @@ function buildPrompt(
     .filter(Boolean)
     .join("\n");
 
-  return `Ты — ассистент по управлению задачами. Проанализируй задачу и верни JSON.
+  return `Ты — ассистент по управлению задачами. Проанализируй сообщение пользователя и верни JSON.
 
 ${goalsSection ? `ЦЕЛИ ПОЛЬЗОВАТЕЛЯ:\n${goalsSection}\n` : ""}
-ЗАДАЧА: ${taskText}
+СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: ${taskText}
 
-${hintsSection ? `УЖЕ ОПРЕДЕЛЕНО ПОЛЬЗОВАТЕЛЕМ (не меняй эти значения):\n${hintsSection}\n` : ""}
-
-Определи следующее (пропусти то, что уже указано пользователем):
-- complexity: сложность ("low" | "medium" | "high")
-- duration: время на выполнение ("5min" | "30min" | "1hour" | "2hours+")
-- priority: приоритет (0=нет, 1=низкий, 2=средний, 3=высокий). Учитывай цели пользователя — задачи, связанные с его целями, имеют более высокий приоритет
-- tags: массив тегов (3-5 штук, на русском, одним словом)
-- estimatedMinutes: примерное время в минутах (число)
+${hintsSection ? `УЖЕ ОПРЕДЕЛЕНО ИЗ СООБЩЕНИЯ (не меняй эти значения):\n${hintsSection}\n` : ""}
 
 Верни ТОЛЬКО валидный JSON без пояснений:
 {
-  "complexity": "medium",
-  "duration": "30min",
-  "priority": 2,
-  "tags": ["работа", "планирование"],
-  "estimatedMinutes": 30
-}`;
+  "taskTitle": "Краткое чёткое название задачи",
+  "taskType": "calendar | simple | project",
+  "complexity": "low | medium | high",
+  "duration": "5min | 30min | 1hour | 2hours+",
+  "priority": 0,
+  "estimatedMinutes": 5,
+  "subtasks": [
+    {
+      "title": "Подзадача 1",
+      "subtasks": [
+        { "title": "Подподзадача 1.1" }
+      ]
+    }
+  ]
+}
+
+Правила:
+- taskTitle: только суть задачи без инструкций
+- taskType:
+  "calendar" — задача привязана к дате/времени/событию (встреча, звонок, дедлайн, напоминание)
+  "simple" — простое одноразовое действие (купить, позвонить, сходить, написать короткое сообщение)
+  "project" — требует нескольких шагов, планирования, времени (разработка, исследование, создание чего-то)
+- complexity: "low" | "medium" | "high"
+- duration: "5min" | "30min" | "1hour" | "2hours+"
+- priority: 0=нет, 1=низкий, 2=средний, 3=высокий
+- estimatedMinutes: число
+- subtasks: только для taskType="project". Разбей на логические шаги. Если шаг сложный — добавь вложенные subtasks. Для "calendar" и "simple" — не указывай поле subtasks совсем`;
 }

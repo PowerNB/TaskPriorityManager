@@ -1,5 +1,6 @@
 import { Composer } from "grammy";
 import type { BotContext } from "../context.js";
+import { mainMenuKeyboard } from "../helpers/keyboards.js";
 
 const composer = new Composer<BotContext>();
 
@@ -8,39 +9,36 @@ composer.command("start", async (ctx) => {
   await ctx.reply(
     `Привет, ${name}! 👋\n\n` +
       `Я помогаю управлять задачами через TickTick.\n\n` +
-      `*Как пользоваться:*\n` +
-      `1. Подключи TickTick через /connect\n` +
-      `2. Просто напиши задачу — я её проанализирую и добавлю\n\n` +
-      `*Команды:*\n` +
-      `/connect — подключить TickTick\n` +
-      `/settings — настроить личные и карьерные цели\n` +
-      `/help — подробная справка`,
-    { parse_mode: "Markdown" }
+      `Просто напиши задачу — я проанализирую её и добавлю в нужный список.\n` +
+      `Или воспользуйся меню ниже:`,
+    { reply_markup: mainMenuKeyboard() }
   );
 });
 
-composer.command("help", async (ctx) => {
-  await ctx.reply(
-    `*Справка*\n\n` +
-      `Напиши любую задачу, и я:\n` +
-      `1. Добавлю её в TickTick\n` +
-      `2. Определю сложность и время выполнения\n` +
+composer.callbackQuery("menu:main", async (ctx) => {
+  await ctx.editMessageText(
+    `Главное меню — выбери действие:`,
+    { reply_markup: mainMenuKeyboard() }
+  );
+  await ctx.answerCallbackQuery();
+});
+
+composer.callbackQuery("help:show", async (ctx) => {
+  await ctx.editMessageText(
+    `❓ Справка\n\n` +
+      `Напиши любую задачу текстом, и я:\n` +
+      `1. Определю название задачи\n` +
+      `2. Оценю сложность и время\n` +
       `3. Назначу теги и приоритет\n` +
-      `4. Перемещу в нужную папку по времени\n\n` +
-      `*Подсказки в тексте задачи:*\n` +
+      `4. Добавлю в нужный список TickTick\n\n` +
+      `Подсказки прямо в тексте:\n` +
       `• "высокий приоритет" / "низкий приоритет"\n` +
       `• "5 минут" / "30 минут" / "1 час"\n` +
       `• "сложная" / "простая"\n\n` +
-      `*Папки:*\n` +
-      `• 5 минут\n` +
-      `• 30 минут\n` +
-      `• 1 час\n` +
-      `• Более 2-х часов - проекты\n\n` +
-      `*Настройки:*\n` +
-      `/connect — подключить TickTick (нужен Client ID и Secret)\n` +
-      `/settings — личные и карьерные цели`,
-    { parse_mode: "Markdown" }
+      `Или используй Ручной режим для управления задачами вручную.`,
+    { reply_markup: mainMenuKeyboard() }
   );
+  await ctx.answerCallbackQuery();
 });
 
 export { composer as startFeature };
