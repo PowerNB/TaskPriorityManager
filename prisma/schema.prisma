@@ -28,6 +28,30 @@ model WhitelistEntry {
   addedAt   DateTime @default(now())
 }
 
+model ScheduledTask {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  ticktickId   String   @unique
+  title        String
+  dueDate      DateTime
+  isAllDay     Boolean  @default(false)
+  reminded9am  Boolean  @default(false)
+  remindedHour Boolean  @default(false)
+}
+
+model WeeklyReport {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  weekStart       DateTime // Monday 00:00
+  weekEnd         DateTime // Sunday 23:59
+  totalPlanned    Int
+  totalCompleted  Int
+  totalOverdue    Int
+  onTimePercent   Int
+  reportText      String   // Full formatted report snapshot
+  createdAt       DateTime @default(now())
+}
+
 model UserSettings {
   id             Int    @id @default(autoincrement())
   userId         Int    @unique
