@@ -9,15 +9,15 @@ import type { TaskIntentAnalysis } from "../types/index.js";
 import type { TickTickTask } from "../../ticktick/client.js";
 import { transcribeOgg } from "../../voice/transcriber.js";
 import { appConfig } from "../../config.js";
-import { refersToLastTask } from "../services/task-analyzer.js";
+import { refersToLastTask, parseDateText } from "../services/task-analyzer.js";
 
 const composer = new Composer<BotContext>();
 const feature = composer.chatType("private");
 
 // Main text handler
 feature.on("message:text", async (ctx, next) => {
-  // If waiting for a title edit — handle first
   const pending = ctx.session.pendingEditTask;
+
   if (pending?.field === "title") {
     const text = ctx.message.text.trim();
     if (text.startsWith("/")) return next();
@@ -37,6 +37,41 @@ feature.on("message:text", async (ctx, next) => {
     } catch (err) {
       ctx.logger.error({ err }, "Failed to update title");
       await ctx.reply("❌ Ошибка при изменении названия.");
+    }
+    return;
+  }
+
+  if (pending?.field === "datetime") {
+    const text = ctx.message.text.trim();
+    if (text.startsWith("/")) return next();
+
+    ctx.session.pendingEditTask = undefined;
+    const editing = ctx.session.editingTask;
+    if (!editing) return;
+
+    try {
+      const parsed = await parseDateText(text);
+      if (!parsed.dueDate) {
+        await ctx.reply("❌ Не удалось распознать дату. Попробуй ещё раз, например: завтра в 15:00");
+        ctx.session.pendingEditTask = { taskId: editing.taskId, projectId: editing.projectId, field: "datetime" };
+        return;
+      }
+      const token = await ctx.ticktickTokenRepo.findByUserId(ctx.from.id);
+      if (!token) { await ctx.reply("TickTick не подключён"); return; }
+      const client = createTickTickClient(token, ctx.from.id, ctx.ticktickTokenRepo);
+      await client.updateTask(editing.taskId, {
+        projectId: editing.projectId,
+        dueDate: parsed.dueDate,
+        startDate: parsed.dueDate,
+        isAllDay: parsed.isAllDay ?? false,
+        timeZone: appConfig.USER_TIMEZONE,
+      });
+      ctx.logger.info({ userId: ctx.from.id, taskId: editing.taskId, dueDate: parsed.dueDate }, "Task datetime updated");
+      const card = await showTaskCard(ctx, editing.taskId, editing.projectId);
+      await ctx.reply(card, { reply_markup: editMenuKeyboard() });
+    } catch (err) {
+      ctx.logger.error({ err }, "Failed to update datetime");
+      await ctx.reply("❌ Ошибка при изменении времени.");
     }
     return;
   }
@@ -228,8 +263,9 @@ feature.callbackQuery(/^ta:([^:]+):(\d+)$/, async (ctx) => {
     await executeAction(intentAnalysis, fullTask, client);
     ctx.logger.info({ userId: ctx.from.id, taskId: task.id, title: task.title, intent }, `Task ${intent}d`);
     ctx.session.lastTask = intent !== "delete" ? { id: task.id, projectId: task.projectId, title: task.title } : undefined;
+    const icon = intent === "delete" ? "🗑" : "✅";
     const verb = intent === "delete" ? "удалена" : "завершена";
-    await ctx.editMessageText(`✅ Задача "${task.title}" ${verb}.`, { reply_markup: afterActionKeyboard() });
+    await ctx.editMessageText(`${icon} Задача "${task.title}" ${verb}.`, { reply_markup: afterActionKeyboard() });
   } catch (err) {
     ctx.logger.error({ err }, "Failed to execute action");
     await ctx.editMessageText("❌ Ошибка при выполнении действия.");
@@ -266,14 +302,23 @@ feature.callbackQuery(/^tl:(edit|delete|complete):([^:]+):([^:]*)$/, async (ctx)
     if (!token) return;
     const client = createTickTickClient(token, ctx.from.id, ctx.ticktickTokenRepo);
 
+    // Fetch title for the confirmation message
+    let taskTitle = "";
+    try {
+      const data = await client.getProjectTasks(projectId);
+      taskTitle = (data.tasks ?? []).find((t) => t.id === taskId)?.title ?? "";
+    } catch { /* title stays empty */ }
+
     if (action === "delete") {
       await client.deleteTask(projectId, taskId);
       ctx.logger.info({ userId: ctx.from.id, taskId, projectId }, "Task deleted from list");
-      await ctx.editMessageText("✅ Задача удалена.", { reply_markup: afterActionKeyboard() });
+      const msg = taskTitle ? `🗑 Задача "${taskTitle}" удалена.` : "🗑 Задача удалена.";
+      await ctx.editMessageText(msg, { reply_markup: afterActionKeyboard() });
     } else if (action === "complete") {
       await client.completeTask(taskId, projectId);
       ctx.logger.info({ userId: ctx.from.id, taskId, projectId }, "Task completed from list");
-      await ctx.editMessageText("✅ Задача завершена!", { reply_markup: afterActionKeyboard() });
+      const msg = taskTitle ? `✅ Задача "${taskTitle}" завершена!` : "✅ Задача завершена!";
+      await ctx.editMessageText(msg, { reply_markup: afterActionKeyboard() });
     }
   } catch (err) {
     ctx.logger.error({ err }, "Failed to execute list task action");
@@ -299,6 +344,12 @@ feature.callbackQuery(/^tef:(.+)$/, async (ctx) => {
   if (field === "title") {
     ctx.session.pendingEditTask = { taskId: editing.taskId, projectId: editing.projectId, field: "title" };
     await ctx.editMessageText("Введи новое название задачи:");
+    return;
+  }
+
+  if (field === "datetime") {
+    ctx.session.pendingEditTask = { taskId: editing.taskId, projectId: editing.projectId, field: "datetime" };
+    await ctx.editMessageText("Введи новую дату и время задачи:\nНапример: завтра в 15:00, пятница в 10:00, 5 мая в 18:30");
     return;
   }
 
@@ -385,6 +436,7 @@ async function showTaskCard(ctx: BotContext, taskId: string, projectId: string):
 function editMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("📝 Название",      "tef:title").row()
+    .text("📅 Время задачи",  "tef:datetime").row()
     .text("⏱ Временной тег",  "tef:duration").row()
     .text("📁 Лист",           "tef:project").row()
     .text("✅ Готово",         "tef:done");

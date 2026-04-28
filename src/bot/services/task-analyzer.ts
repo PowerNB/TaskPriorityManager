@@ -144,6 +144,31 @@ export async function analyzeTask(
   };
 }
 
+export async function parseDateText(text: string): Promise<{ dueDate?: string; isAllDay?: boolean }> {
+  const now = new Date();
+  const tz = appConfig.USER_TIMEZONE;
+  const dateStr = now.toLocaleDateString("ru-RU", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz });
+  const timeStr = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+
+  const response = await callOllama(
+    `Parse the date/time from this message and return ONLY valid JSON.
+
+CURRENT DATE AND TIME: ${dateStr}, ${timeStr}
+
+USER MESSAGE: "${text}"
+
+Return ONLY:
+{ "dueDate": "2026-05-01T15:00:00", "isAllDay": false }
+
+Rules:
+- dueDate: ISO 8601 datetime without timezone offset
+- isAllDay: true if only date mentioned (no time), false if time specified
+- If no date/time can be determined, return {}`
+  );
+
+  return parseJson<{ dueDate?: string; isAllDay?: boolean }>(response);
+}
+
 function buildPrompt(taskText: string, hints: ParsedUserHints): string {
   const now = new Date();
   const tz = appConfig.USER_TIMEZONE;
