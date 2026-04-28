@@ -10,8 +10,6 @@ export function mainMenuKeyboard(): InlineKeyboard {
 
 export function settingsMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("👤 Личные цели", "settings:personal").row()
-    .text("💼 Карьерные цели", "settings:career").row()
     .text("🔌 Отключить TickTick", "connect:disconnect").row()
     .text("◀️ Назад", "menu:main");
 }

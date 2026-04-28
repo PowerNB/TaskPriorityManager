@@ -1,5 +1,5 @@
 import { callClaude, parseJson } from "../../claude/client.js";
-import type { TaskAnalysis, ParsedUserHints, TaskDuration, TaskPriority, Subtask, TaskIntentAnalysis } from "../types/index.js";
+import type { TaskAnalysis, ParsedUserHints, TaskDuration, Subtask, TaskIntentAnalysis } from "../types/index.js";
 
 const DURATION_HINT_MAP: Record<string, TaskDuration> = {
   "5 мин": "5min",
@@ -16,29 +16,18 @@ const DURATION_HINT_MAP: Record<string, TaskDuration> = {
   "более 2": "2hours+",
 };
 
-const PRIORITY_HINT_MAP: Record<string, TaskPriority> = {
-  "высокий": 3,
-  "высокая": 3,
-  "high": 3,
-  "средний": 2,
-  "средняя": 2,
-  "medium": 2,
-  "низкий": 1,
-  "низкая": 1,
-  "low": 1,
-};
-
-const INTENT_KEYWORDS = {
-  delete:   ["удали", "удалить", "убери", "убрать", "сотри", "стереть"],
-  complete: ["заверши", "завершить", "выполни", "выполнить", "сделал", "готово", "закрой", "закрыть"],
+const INTENT_KEYWORDS: Record<string, string[]> = {
+  delete:   ["удали задачу", "удалить задачу", "удали задач", "убери задачу", "убрать задачу", "сотри задачу", "стереть задачу"],
+  complete: ["заверши задачу", "завершить задачу", "выполни задачу", "выполнить задачу", "сделал задачу", "закрой задачу", "задача выполнена", "задача готова"],
   edit:     ["измени", "изменить", "переименуй", "переименовать", "обнови", "обновить", "редактируй", "отредактируй", "поменяй", "поменять"],
+  list:     ["покажи задачи", "покажи список", "мои задачи", "список задач", "что у меня", "какие задачи", "все задачи", "задачи в", "задачи из", "покажи все"],
 };
 
-export function detectIntent(text: string): "delete" | "complete" | "edit" | "create" {
+export function detectIntent(text: string): "delete" | "complete" | "edit" | "list" | "create" {
   const lower = text.toLowerCase();
   for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
     if (keywords.some((kw) => lower.includes(kw))) {
-      return intent as "delete" | "complete" | "edit";
+      return intent as "delete" | "complete" | "edit" | "list";
     }
   }
   return "create";
@@ -49,25 +38,25 @@ export async function analyzeIntent(text: string): Promise<TaskIntentAnalysis> {
   if (intent === "create") return { intent: "create" };
 
   const response = await callClaude(
-    `Пользователь написал: "${text}"
-Намерение: ${intent}
+    `User message: "${text}"
+Intent: ${intent}
 
-Верни ТОЛЬКО валидный JSON:
+Return ONLY valid JSON:
 {
-  "taskQuery": "название задачи которую нужно найти",
+  "taskQuery": "task or list name to search for",
   "editFields": {
-    "title": "новое название если указано или null",
-    "duration": "5min|30min|1hour|2hours+ если указано или null",
-    "projectName": "название листа если указано или null"
+    "title": "new title if specified or null",
+    "duration": "5min|30min|1hour|2hours+ if specified or null",
+    "projectName": "list name if specified or null"
   },
   "needsMoreInfo": false
 }
 
-Правила:
-- taskQuery: извлеки название задачи из сообщения (что нужно найти)
-- editFields: только для intent=edit, иначе пусть будет {}
-- needsMoreInfo: true если intent=edit и не указано что именно менять
-- Все null-поля просто не включай в JSON`
+Rules:
+- taskQuery: for delete/complete/edit — the task name to find; for list — the list/project name to filter by (omit if showing all tasks)
+- editFields: only for intent=edit, otherwise leave as {}
+- needsMoreInfo: true if intent=edit and no specific field to change was mentioned
+- Omit null fields from the JSON entirely`
   );
 
   const raw = parseJson<{
@@ -90,13 +79,6 @@ export function extractUserHints(text: string): ParsedUserHints {
     }
   }
 
-  for (const [keyword, priority] of Object.entries(PRIORITY_HINT_MAP)) {
-    if (lower.includes(keyword + " приоритет") || lower.includes("приоритет " + keyword)) {
-      hints.priority = priority;
-      break;
-    }
-  }
-
   if (lower.includes("простая") || lower.includes("простое") || lower.includes("лёгкая")) {
     hints.complexity = "low";
   } else if (lower.includes("сложная") || lower.includes("сложное") || lower.includes("трудная")) {
@@ -108,24 +90,20 @@ export function extractUserHints(text: string): ParsedUserHints {
 
 export async function analyzeTask(
   taskText: string,
-  personalGoals: string,
-  careerGoals: string,
   hints: ParsedUserHints
 ): Promise<TaskAnalysis> {
-  const prompt = buildPrompt(taskText, personalGoals, careerGoals, hints);
+  const prompt = buildPrompt(taskText, hints);
   const response = await callClaude(prompt);
   const raw = parseJson<{
     taskTitle: string;
     taskType: string;
     complexity: string;
     duration: string;
-    priority: number;
     estimatedMinutes: number;
     subtasks?: Subtask[];
   }>(response);
 
   const duration = (hints.duration ?? raw.duration) as TaskDuration;
-  const priority = (hints.priority ?? raw.priority) as TaskPriority;
   const complexity = (hints.complexity ?? raw.complexity) as "low" | "medium" | "high";
 
   return {
@@ -133,74 +111,57 @@ export async function analyzeTask(
     taskType: raw.taskType as TaskAnalysis["taskType"],
     complexity,
     duration,
-    priority,
+    priority: 0,
     tags: [],
     estimatedMinutes: raw.estimatedMinutes,
     subtasks: raw.subtasks,
   };
 }
 
-function buildPrompt(
-  taskText: string,
-  personalGoals: string,
-  careerGoals: string,
-  hints: ParsedUserHints
-): string {
+function buildPrompt(taskText: string, hints: ParsedUserHints): string {
   const now = new Date();
   const dateStr = now.toLocaleDateString("ru-RU", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const timeStr = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 
-  const goalsSection = [
-    personalGoals ? `Личные цели пользователя: ${personalGoals}` : "",
-    careerGoals ? `Карьерные цели пользователя: ${careerGoals}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
   const hintsSection = [
-    hints.complexity ? `- Сложность указана пользователем: ${hints.complexity}` : "",
-    hints.duration ? `- Время выполнения указано пользователем: ${hints.duration}` : "",
-    hints.priority !== undefined ? `- Приоритет указан пользователем: ${hints.priority}` : "",
+    hints.complexity ? `- Complexity specified by user: ${hints.complexity}` : "",
+    hints.duration ? `- Duration specified by user: ${hints.duration}` : "",
   ]
     .filter(Boolean)
     .join("\n");
 
-  return `Ты — ассистент по управлению задачами. Проанализируй сообщение пользователя и верни JSON.
+  return `You are a task management assistant. Analyze the user message and return JSON.
 
-ТЕКУЩАЯ ДАТА И ВРЕМЯ: ${dateStr}, ${timeStr}
+CURRENT DATE AND TIME: ${dateStr}, ${timeStr}
 
-${goalsSection ? `ЦЕЛИ ПОЛЬЗОВАТЕЛЯ:\n${goalsSection}\n` : ""}
-СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: ${taskText}
+USER MESSAGE: ${taskText}
 
-${hintsSection ? `УЖЕ ОПРЕДЕЛЕНО ИЗ СООБЩЕНИЯ (не меняй эти значения):\n${hintsSection}\n` : ""}
-
-Верни ТОЛЬКО валидный JSON без пояснений:
+${hintsSection ? `ALREADY DETERMINED FROM MESSAGE (do not change these values):\n${hintsSection}\n` : ""}
+Return ONLY valid JSON with no explanations:
 {
-  "taskTitle": "Краткое чёткое название задачи",
+  "taskTitle": "Short clear task title",
   "taskType": "calendar | simple | project",
   "complexity": "low | medium | high",
   "duration": "5min | 30min | 1hour | 2hours+",
-  "priority": 0,
   "estimatedMinutes": 5,
   "subtasks": [
     {
-      "title": "Подзадача 1",
+      "title": "Subtask 1",
       "subtasks": [
-        { "title": "Подподзадача 1.1" }
+        { "title": "Sub-subtask 1.1" }
       ]
     }
   ]
 }
 
-Правила:
-- taskTitle: только суть задачи. Если есть дата/время — включи их в название. Например: "Купить хлеб после работы завтра (28 апреля)"
+Rules:
+- taskTitle: task essence only, in the SAME LANGUAGE as the user message. If date/time is mentioned — include it in the title. Example for Russian: "Купить хлеб после работы завтра (28 апреля)"
 - taskType:
-  "calendar" — ОБЯЗАТЕЛЬНО если в тексте есть: конкретная дата, день недели, слова сегодня/завтра/послезавтра/вечером/утром/в понедельник и т.д., время суток, через N дней/часов, дедлайн, встреча, звонок, напоминание
-  "simple" — простое одноразовое действие БЕЗ привязки ко времени (купить, позвонить без даты, сходить без даты)
-  "project" — требует нескольких шагов, планирования (разработка, исследование, создание чего-то)
+  "calendar" — REQUIRED if text contains: specific date, day of week, words today/tomorrow/evening/morning/on Monday/etc., time of day, in N days/hours, deadline, meeting, call, reminder
+  "simple" — simple one-time action WITHOUT time binding (buy, call without date, go without date)
+  "project" — requires multiple steps, planning (development, research, creating something)
 - complexity: "low" | "medium" | "high"
 - duration: "5min" | "30min" | "1hour" | "2hours+"
-- priority: 0=нет, 1=низкий, 2=средний, 3=высокий
-- estimatedMinutes: число
-- subtasks: только для taskType="project". Для "calendar" и "simple" — не указывай поле subtasks совсем`;
+- estimatedMinutes: number
+- subtasks: only for taskType="project". For "calendar" and "simple" — do not include the subtasks field at all`;
 }

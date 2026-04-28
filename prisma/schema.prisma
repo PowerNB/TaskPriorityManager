@@ -23,6 +23,11 @@ model User {
   ticktick  TickTickToken?
 }
 
+model WhitelistEntry {
+  userId    Int      @id
+  addedAt   DateTime @default(now())
+}
+
 model UserSettings {
   id             Int    @id @default(autoincrement())
   userId         Int    @unique

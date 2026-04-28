@@ -5,6 +5,7 @@ import type { PrismaClient } from "@prisma/client";
 import type { UserRepository } from "./repositories/user.repository.js";
 import type { SettingsRepository } from "./repositories/settings.repository.js";
 import type { TickTickTokenRepository } from "./repositories/ticktick-token.repository.js";
+import type { WhitelistRepository } from "./repositories/whitelist.repository.js";
 import type { TaskIntentAnalysis } from "./types/index.js";
 
 export interface SessionData {
@@ -23,5 +24,6 @@ export type BotContext = ConversationFlavor<
       userRepo: UserRepository;
       settingsRepo: SettingsRepository;
       ticktickTokenRepo: TickTickTokenRepository;
+      whitelistRepo: WhitelistRepository;
     }
 >;

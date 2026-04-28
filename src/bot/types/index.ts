@@ -1,6 +1,6 @@
 export type TaskPriority = 0 | 1 | 2 | 3;
 
-export type TaskIntent = "create" | "delete" | "complete" | "edit";
+export type TaskIntent = "create" | "delete" | "complete" | "edit" | "list";
 
 export interface TaskIntentAnalysis {
   intent: TaskIntent;

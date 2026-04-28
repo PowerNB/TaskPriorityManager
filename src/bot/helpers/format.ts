@@ -1,12 +1,5 @@
 import type { TaskAnalysis } from "../types/index.js";
 
-const PRIORITY_LABELS: Record<number, string> = {
-  0: "Без приоритета",
-  1: "Низкий",
-  2: "Средний",
-  3: "Высокий",
-};
-
 const COMPLEXITY_LABELS: Record<string, string> = {
   low: "Низкая",
   medium: "Средняя",
@@ -36,7 +29,7 @@ export function formatTaskResult(analysis: TaskAnalysis, projectName: string): s
     ``,
     `📁 Список: ${projectName}`,
     `🔖 Тип: ${TYPE_LABELS[analysis.taskType] ?? analysis.taskType}`,
-    `⚡ Приоритет: ${PRIORITY_LABELS[analysis.priority]}`,
+
     `🧠 Сложность: ${COMPLEXITY_LABELS[analysis.complexity]}`,
     `⏱ Время: ${DURATION_LABELS[analysis.duration] ?? analysis.duration}`,
   ];

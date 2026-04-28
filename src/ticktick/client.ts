@@ -220,7 +220,7 @@ export class TickTickClient {
   }
 
   async deleteTask(projectId: string, taskId: string): Promise<void> {
-    await this.http.delete(`/task/${projectId}/${taskId}`);
+    await this.http.delete(`/project/${projectId}/task/${taskId}`);
   }
 
   async createTask(task: TickTickTask): Promise<TickTickTask> {

@@ -7,6 +7,7 @@ import { appConfig } from "../config.js";
 import { UserRepository } from "./repositories/user.repository.js";
 import { SettingsRepository } from "./repositories/settings.repository.js";
 import { TickTickTokenRepository } from "./repositories/ticktick-token.repository.js";
+import { WhitelistRepository } from "./repositories/whitelist.repository.js";
 import { authMiddleware } from "./middleware/auth.mw.js";
 import { startFeature } from "./features/start.js";
 import { createConnectFeature } from "./features/connect.js";
@@ -22,6 +23,28 @@ export function createBot(prisma: PrismaClient, logger: Logger): Bot<BotContext>
   const userRepo = new UserRepository(prisma);
   const settingsRepo = new SettingsRepository(prisma);
   const ticktickTokenRepo = new TickTickTokenRepository(prisma);
+  const whitelistRepo = new WhitelistRepository(prisma);
+
+  const groupId = appConfig.WHITELIST_GROUP_ID ? Number(appConfig.WHITELIST_GROUP_ID) : null;
+
+  // Sync whitelist from group membership events
+  if (groupId) {
+    bot.on("chat_member", async (ctx) => {
+      if (ctx.chatMember.chat.id !== groupId) return;
+      const member = ctx.chatMember.new_chat_member;
+      const userId = member.user.id;
+      if (member.user.is_bot) return;
+
+      const active = ["member", "administrator", "creator"].includes(member.status);
+      if (active) {
+        await whitelistRepo.add(userId);
+        logger.info({ userId }, "Added to whitelist via group join");
+      } else {
+        await whitelistRepo.remove(userId);
+        logger.info({ userId }, "Removed from whitelist via group leave");
+      }
+    });
+  }
 
   // Inject dependencies into context
   bot.use(async (ctx, next) => {
@@ -30,6 +53,7 @@ export function createBot(prisma: PrismaClient, logger: Logger): Bot<BotContext>
     ctx.userRepo = userRepo;
     ctx.settingsRepo = settingsRepo;
     ctx.ticktickTokenRepo = ticktickTokenRepo;
+    ctx.whitelistRepo = whitelistRepo;
     await next();
   });
 

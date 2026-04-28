@@ -9,7 +9,11 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error"]).default("info"),
   NODE_ENV: z.enum(["development", "production"]).default("development"),
+  WHITELIST_GROUP_ID: z.string().optional(),
+  GROQ_API_KEY: z.string().min(1),
 });
+
+export const ADMIN_IDS: number[] = [808980078];
 
 const parsed = schema.safeParse(process.env);
 

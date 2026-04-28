@@ -3,9 +3,17 @@ import { run } from "@grammyjs/runner";
 import { appConfig, isDev } from "./config.js";
 import { logger } from "./logger.js";
 import { createBot } from "./bot/index.js";
+import { initVosk } from "./voice/transcriber.js";
 
 async function main(): Promise<void> {
   logger.info("Starting bot...");
+
+  try {
+    initVosk();
+    logger.info("Vosk model loaded");
+  } catch (err) {
+    logger.warn({ err }, "Vosk not available — voice messages will not work");
+  }
 
   const prisma = new PrismaClient();
   await prisma.$connect();

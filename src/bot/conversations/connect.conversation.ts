@@ -25,8 +25,11 @@ export function makeConnectConversation(tokenRepo: TickTickTokenRepository) {
         `Если ещё не создал приложение в TickTick:\n` +
         `1. Открой https://developer.ticktick.com/manage\n` +
         `2. Нажми New App\n` +
-        `3. В поле App Service URL укажи свой Redirect URI\n` +
-        `4. Скопируй Client ID и Client Secret\n\n` +
+        `3. Заполни поля:\n` +
+        `   • Name — любое название, например Task Priority Manager\n` +
+        `   • App Service URL — https://oauth.pstmn.io/v1/callback\n` +
+        `4. Нажми Add\n` +
+        `5. Скопируй Client ID и Client Secret\n\n` +
         `Введи Client ID:\n\n` +
         `/cancel — отмена`
     );
