@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { appConfig } from "../../config.js";
 import { analyzeTask, analyzeIntent, extractUserHints } from "./task-analyzer.js";
 import { getTasksToday, getTasksThisWeek } from "./task-list.service.js";
 import { createTickTickClient } from "../../ticktick/client.js";
@@ -204,7 +205,7 @@ export async function processTask(
       dueDate: analysis.dueDate,
       startDate: analysis.dueDate,
       isAllDay: analysis.isAllDay ?? false,
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timeZone: appConfig.USER_TIMEZONE,
     }),
   });
 

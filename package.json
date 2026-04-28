@@ -5,8 +5,8 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/main.js",
-    "dev": "tsc-watch --onSuccess \"node dist/main.js\"",
+    "start": "chcp 65001 && node dist/main.js",
+    "dev": "chcp 65001 && tsc-watch --onSuccess \"node dist/main.js\"",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push"
@@ -19,12 +19,15 @@
     "@prisma/client": "^6.0.0",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/form-data": "^2.2.1",
+    "@types/node-cron": "^3.0.11",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "ffmpeg-static": "^5.3.0",
     "fluent-ffmpeg": "^2.1.3",
     "form-data": "^4.0.5",
     "grammy": "^1.31.0",
+    "groq-sdk": "^1.1.2",
+    "node-cron": "^4.2.1",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
     "zod": "^3.24.1"

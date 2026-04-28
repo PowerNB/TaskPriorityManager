@@ -8,43 +8,28 @@ import { UserRepository } from "./repositories/user.repository.js";
 import { SettingsRepository } from "./repositories/settings.repository.js";
 import { TickTickTokenRepository } from "./repositories/ticktick-token.repository.js";
 import { WhitelistRepository } from "./repositories/whitelist.repository.js";
+import { ScheduledTaskRepository } from "./repositories/scheduled-task.repository.js";
+import { WeeklyReportRepository } from "./repositories/weekly-report.repository.js";
 import { authMiddleware } from "./middleware/auth.mw.js";
 import { startFeature } from "./features/start.js";
 import { createConnectFeature } from "./features/connect.js";
 import { createSettingsFeature } from "./features/settings.js";
 import { createManualFeature } from "./features/manual.js";
 import { taskFeature } from "./features/task.js";
+import { adminFeature } from "./features/admin.js";
+import { reportFeature } from "./features/report.js";
 import { unhandledFeature } from "./features/unhandled.js";
 import { createPrismaSessionStorage } from "./helpers/session-storage.js";
 
-export function createBot(prisma: PrismaClient, logger: Logger): Bot<BotContext> {
+export function createBot(prisma: PrismaClient, logger: Logger): { bot: Bot<BotContext>; scheduledTaskRepo: ScheduledTaskRepository; ticktickTokenRepo: TickTickTokenRepository; weeklyReportRepo: WeeklyReportRepository } {
   const bot = new Bot<BotContext>(appConfig.BOT_TOKEN);
 
   const userRepo = new UserRepository(prisma);
   const settingsRepo = new SettingsRepository(prisma);
   const ticktickTokenRepo = new TickTickTokenRepository(prisma);
   const whitelistRepo = new WhitelistRepository(prisma);
-
-  const groupId = appConfig.WHITELIST_GROUP_ID ? Number(appConfig.WHITELIST_GROUP_ID) : null;
-
-  // Sync whitelist from group membership events
-  if (groupId) {
-    bot.on("chat_member", async (ctx) => {
-      if (ctx.chatMember.chat.id !== groupId) return;
-      const member = ctx.chatMember.new_chat_member;
-      const userId = member.user.id;
-      if (member.user.is_bot) return;
-
-      const active = ["member", "administrator", "creator"].includes(member.status);
-      if (active) {
-        await whitelistRepo.add(userId);
-        logger.info({ userId }, "Added to whitelist via group join");
-      } else {
-        await whitelistRepo.remove(userId);
-        logger.info({ userId }, "Removed from whitelist via group leave");
-      }
-    });
-  }
+  const scheduledTaskRepo = new ScheduledTaskRepository(prisma);
+  const weeklyReportRepo = new WeeklyReportRepository(prisma);
 
   // Inject dependencies into context
   bot.use(async (ctx, next) => {
@@ -54,6 +39,8 @@ export function createBot(prisma: PrismaClient, logger: Logger): Bot<BotContext>
     ctx.settingsRepo = settingsRepo;
     ctx.ticktickTokenRepo = ticktickTokenRepo;
     ctx.whitelistRepo = whitelistRepo;
+    ctx.scheduledTaskRepo = scheduledTaskRepo;
+    ctx.weeklyReportRepo = weeklyReportRepo;
     await next();
   });
 
@@ -77,19 +64,22 @@ export function createBot(prisma: PrismaClient, logger: Logger): Bot<BotContext>
   bot.use(createSettingsFeature(settingsRepo));
   bot.use(createManualFeature(ticktickTokenRepo));
   bot.use(taskFeature);
+  bot.use(adminFeature);
+  bot.use(reportFeature);
   bot.use(unhandledFeature);
 
   // Error handler
   bot.catch((err) => {
     const e = err.error;
-    if (
-      e instanceof Error &&
-      e.message.includes("message is not modified")
-    ) {
+    if (e instanceof Error && e.message.includes("message is not modified")) {
       return;
     }
-    logger.error({ err: e, update: err.ctx?.update }, "Unhandled bot error");
+    // Log with full error message to help diagnose silent failures
+    logger.error(
+      { err: e, message: e instanceof Error ? e.message : String(e), update: err.ctx?.update },
+      "Unhandled bot error"
+    );
   });
 
-  return bot;
+  return { bot, scheduledTaskRepo, ticktickTokenRepo, weeklyReportRepo };
 }

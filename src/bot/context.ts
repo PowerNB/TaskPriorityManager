@@ -6,6 +6,8 @@ import type { UserRepository } from "./repositories/user.repository.js";
 import type { SettingsRepository } from "./repositories/settings.repository.js";
 import type { TickTickTokenRepository } from "./repositories/ticktick-token.repository.js";
 import type { WhitelistRepository } from "./repositories/whitelist.repository.js";
+import type { ScheduledTaskRepository } from "./repositories/scheduled-task.repository.js";
+import type { WeeklyReportRepository } from "./repositories/weekly-report.repository.js";
 import type { TaskIntentAnalysis } from "./types/index.js";
 
 export interface SessionData {
@@ -14,6 +16,7 @@ export interface SessionData {
   pendingEditTask?: { taskId: string; projectId: string; field: string };
   editingTask?: { taskId: string; projectId: string; taskTitle: string };
   pendingTasks?: { id: string; projectId: string; title: string }[];
+  lastTask?: { id: string; projectId: string; title: string };
 }
 
 export type BotContext = ConversationFlavor<
@@ -25,5 +28,7 @@ export type BotContext = ConversationFlavor<
       settingsRepo: SettingsRepository;
       ticktickTokenRepo: TickTickTokenRepository;
       whitelistRepo: WhitelistRepository;
+      scheduledTaskRepo: ScheduledTaskRepository;
+      weeklyReportRepo: WeeklyReportRepository;
     }
 >;

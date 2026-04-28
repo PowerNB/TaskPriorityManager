@@ -1,12 +1,14 @@
 import { Composer, InlineKeyboard } from "grammy";
 import type { BotContext } from "../context.js";
 import { routeTask, executeAction } from "../services/task.service.js";
-import { formatTaskResult } from "../helpers/format.js";
+import { formatTaskResult, formatTaskCard, formatTaskListCard } from "../helpers/format.js";
 import { createTickTickClient } from "../../ticktick/client.js";
-import { DURATION_TAGS } from "../../ticktick/projects.js";
+import { DURATION_TAGS, minutesToDurationBucket } from "../../ticktick/projects.js";
 import type { TaskIntentAnalysis } from "../types/index.js";
 import type { TickTickTask } from "../../ticktick/client.js";
 import { transcribeOgg } from "../../voice/transcriber.js";
+import { appConfig } from "../../config.js";
+import { refersToLastTask } from "../services/task-analyzer.js";
 
 const composer = new Composer<BotContext>();
 const feature = composer.chatType("private");
@@ -28,7 +30,9 @@ feature.on("message:text", async (ctx, next) => {
       if (!token) { await ctx.reply("TickTick не подключён"); return; }
       const client = createTickTickClient(token, ctx.from.id, ctx.ticktickTokenRepo);
       await client.updateTask(editing.taskId, { title: text, projectId: editing.projectId });
-      await ctx.reply(`✅ Название изменено на "${text}"`, { reply_markup: editMenuKeyboard() });
+      ctx.logger.info({ userId: ctx.from.id, taskId: editing.taskId, newTitle: text }, "Task title updated");
+      const card = await showTaskCard(ctx, editing.taskId, editing.projectId);
+      await ctx.reply(card, { reply_markup: editMenuKeyboard() });
     } catch (err) {
       ctx.logger.error({ err }, "Failed to update title");
       await ctx.reply("❌ Ошибка при изменении названия.");
@@ -39,17 +43,52 @@ feature.on("message:text", async (ctx, next) => {
   const text = ctx.message.text;
   if (text.startsWith("/")) return next();
 
+  ctx.logger.info({ userId: ctx.from.id, text }, "Incoming text message");
   const processingMsg = await ctx.reply("⏳ Анализирую...");
+
+  // If the message refers to the last task by pronoun — act on it directly
+  if (refersToLastTask(text) && ctx.session.lastTask) {
+    const last = ctx.session.lastTask;
+    ctx.logger.info({ userId: ctx.from.id, lastTask: last }, "Pronoun detected — using last task");
+    const augmented = `${text} (задача: "${last.title}")`;
+    try {
+      const routed = await routeTask(augmented, ctx.from.id, ctx.ticktickTokenRepo, ctx.scheduledTaskRepo, ctx.logger, last);
+      if (routed.type === "create") {
+        ctx.session.lastTask = undefined;
+        await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, formatTaskResult(routed.result.analysis, routed.result.projectName), { reply_markup: afterActionKeyboard() });
+      } else {
+        const { result } = routed;
+        if (result.status === "done") {
+          if (result.intent !== "list") ctx.session.lastTask = undefined;
+          await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, result.message!, { reply_markup: afterActionKeyboard() });
+        } else if (result.status === "needs_info" || result.intent === "edit") {
+          ctx.session.editingTask = { taskId: last.id, projectId: last.projectId, taskTitle: last.title };
+          await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, `✏️ Редактирование: "${last.title}"\n\nЧто хочешь изменить?`, { reply_markup: editMenuKeyboard() });
+        }
+      }
+    } catch (err) {
+      ctx.logger.error({ err }, "Failed to process pronoun task");
+      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, "❌ Не удалось обработать задачу. Попробуй ещё раз.");
+    }
+    return;
+  }
 
   try {
     const routed = await routeTask(
       text,
       ctx.from.id,
       ctx.ticktickTokenRepo,
+      ctx.scheduledTaskRepo,
       ctx.logger
     );
 
     if (routed.type === "create") {
+      ctx.logger.info({ userId: ctx.from.id, title: routed.result.analysis.taskTitle, project: routed.result.projectName, dueDate: routed.result.analysis.dueDate }, "Task created");
+      ctx.session.lastTask = {
+        id: routed.result.createdId ?? "",
+        projectId: routed.result.projectId ?? "",
+        title: routed.result.analysis.taskTitle,
+      };
       await ctx.api.editMessageText(
         ctx.chat.id,
         processingMsg.message_id,
@@ -62,12 +101,14 @@ feature.on("message:text", async (ctx, next) => {
     const { result } = routed;
 
     if (result.status === "done") {
+      ctx.logger.info({ userId: ctx.from.id, intent: result.intent }, `Task action completed: ${result.intent}`);
       await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, result.message!, { reply_markup: afterActionKeyboard() });
       return;
     }
 
     if (result.intent === "list") {
       const tasks = result.tasks ?? [];
+      ctx.logger.info({ userId: ctx.from.id, count: tasks.length }, "Task list requested");
       if (tasks.length === 0) {
         await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, "📋 Задач не найдено.", { reply_markup: afterActionKeyboard() });
         return;
@@ -86,6 +127,42 @@ feature.on("message:text", async (ctx, next) => {
       }
       const text = lines.join("\n").trim();
       await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, text, { reply_markup: afterActionKeyboard() });
+      return;
+    }
+
+    if (result.intent === "today") {
+      const tasks = result.tasks ?? [];
+      ctx.logger.info({ userId: ctx.from.id, count: tasks.length }, "Today tasks requested");
+      if (tasks.length === 0) {
+        await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, "📅 На сегодня задач нет.", { reply_markup: afterActionKeyboard() });
+        return;
+      }
+      const today = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+      const cards = tasks.map((t) => formatTaskListCard(t)).join("\n\n─────────────\n\n");
+      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, `📅 Задачи на сегодня (${today}):\n\n${cards}`, { reply_markup: afterActionKeyboard() });
+      return;
+    }
+
+    if (result.intent === "week") {
+      const tasks = result.tasks ?? [];
+      ctx.logger.info({ userId: ctx.from.id, count: tasks.length }, "Week tasks requested");
+      if (tasks.length === 0) {
+        await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, "🗓 На этой неделе задач нет.", { reply_markup: afterActionKeyboard() });
+        return;
+      }
+      const byDay = new Map<string, typeof tasks>();
+      for (const t of tasks) {
+        const key = new Date(t.dueDate!).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
+        if (!byDay.has(key)) byDay.set(key, []);
+        byDay.get(key)!.push(t);
+      }
+      const lines: string[] = ["🗓 Задачи на неделю:\n"];
+      for (const [day, dayTasks] of byDay) {
+        lines.push(`📆 ${day}`);
+        for (const t of dayTasks) lines.push(formatTaskListCard(t));
+        lines.push("");
+      }
+      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, lines.join("\n").trim(), { reply_markup: afterActionKeyboard() });
       return;
     }
 
@@ -127,6 +204,7 @@ feature.callbackQuery(/^ta:([^:]+):(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
 
   if (intent === "cancel") {
+    ctx.logger.info({ userId: ctx.from.id }, "Task action cancelled");
     await ctx.editMessageText("Отменено.", { reply_markup: afterActionKeyboard() });
     return;
   }
@@ -146,9 +224,16 @@ feature.callbackQuery(/^ta:([^:]+):(\d+)$/, async (ctx) => {
       const hasFields = intentAnalysis.editFields && Object.keys(intentAnalysis.editFields).length > 0;
       if (hasFields) {
         await executeAction(intentAnalysis, fullTask, client);
-        await ctx.editMessageText(`✅ Задача "${task.title}" обновлена.`, { reply_markup: afterActionKeyboard() });
+        ctx.logger.info({ userId: ctx.from.id, taskId: task.id, editFields: intentAnalysis.editFields }, "Task edited");
+        ctx.session.lastTask = { id: task.id, projectId: task.projectId, title: intentAnalysis.editFields?.title ?? task.title };
+        const finalProjectId = intentAnalysis.editFields?.projectName
+          ? (await client.getProjects()).find((p) => p.name === intentAnalysis.editFields!.projectName)?.id ?? task.projectId
+          : task.projectId;
+        const card = await showTaskCard(ctx, task.id, finalProjectId);
+        await ctx.editMessageText(card, { reply_markup: afterActionKeyboard() });
       } else {
         ctx.session.editingTask = { taskId: task.id, projectId: task.projectId, taskTitle: task.title };
+        ctx.logger.info({ userId: ctx.from.id, taskId: task.id, title: task.title }, "Edit menu opened");
         await ctx.editMessageText(`✏️ Редактирование: "${task.title}"\n\nЧто хочешь изменить?`, {
           reply_markup: editMenuKeyboard(),
         });
@@ -157,6 +242,8 @@ feature.callbackQuery(/^ta:([^:]+):(\d+)$/, async (ctx) => {
     }
 
     await executeAction(intentAnalysis, fullTask, client);
+    ctx.logger.info({ userId: ctx.from.id, taskId: task.id, title: task.title, intent }, `Task ${intent}d`);
+    ctx.session.lastTask = intent !== "delete" ? { id: task.id, projectId: task.projectId, title: task.title } : undefined;
     const verb = intent === "delete" ? "удалена" : "завершена";
     await ctx.editMessageText(`✅ Задача "${task.title}" ${verb}.`, { reply_markup: afterActionKeyboard() });
   } catch (err) {
@@ -174,8 +261,9 @@ feature.callbackQuery(/^tef:(.+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
 
   if (field === "done") {
+    const card = await showTaskCard(ctx, editing.taskId, editing.projectId);
     ctx.session.editingTask = undefined;
-    await ctx.editMessageText("✅ Редактирование завершено.", { reply_markup: afterActionKeyboard() });
+    await ctx.editMessageText(card, { reply_markup: afterActionKeyboard() });
     return;
   }
 
@@ -187,10 +275,11 @@ feature.callbackQuery(/^tef:(.+)$/, async (ctx) => {
 
   if (field === "duration") {
     const kb = new InlineKeyboard()
-      .text("5 минут",  "tea:dur:5min").row()
-      .text("30 минут", "tea:dur:30min").row()
-      .text("1 час",    "tea:dur:1hour").row()
-      .text("2 часа+",  "tea:dur:2hours+").row()
+      .text("до 5 минут",     "tea:dur:5").row()
+      .text("до 30 минут",    "tea:dur:30").row()
+      .text("до 1 часа",      "tea:dur:60").row()
+      .text("до 2-х часов",   "tea:dur:120").row()
+      .text("более 2-х часов","tea:dur:150").row()
       .text("◀️ Назад", "tef:back");
     await ctx.editMessageText("Выбери временной тег:", { reply_markup: kb });
     return;
@@ -230,7 +319,8 @@ feature.callbackQuery(/^tea:([^:]+):(.+)$/, async (ctx) => {
     const client = createTickTickClient(token, ctx.from.id, ctx.ticktickTokenRepo);
 
     if (type === "dur") {
-      await client.updateTask(editing.taskId, { projectId: editing.projectId, tags: [DURATION_TAGS[value] ?? value] });
+      const bucket = minutesToDurationBucket(parseInt(value));
+      await client.updateTask(editing.taskId, { projectId: editing.projectId, tags: [DURATION_TAGS[bucket]] });
     } else if (type === "proj") {
       await client.updateTask(editing.taskId, { projectId: value });
       ctx.session.editingTask = { ...editing, projectId: value };
@@ -246,6 +336,22 @@ feature.callbackQuery(/^tea:([^:]+):(.+)$/, async (ctx) => {
     await ctx.answerCallbackQuery("❌ Ошибка");
   }
 });
+
+async function showTaskCard(ctx: BotContext, taskId: string, projectId: string): Promise<string> {
+  try {
+    const token = await ctx.ticktickTokenRepo.findByUserId(ctx.from!.id);
+    if (!token) return "✅ Задача обновлена.";
+    const client = createTickTickClient(token, ctx.from!.id, ctx.ticktickTokenRepo);
+    const projects = await client.getProjects();
+    const project = projects.find((p) => p.id === projectId);
+    const data = await client.getProjectTasks(projectId);
+    const task = data.tasks.find((t) => t.id === taskId);
+    if (!task) return "✅ Задача обновлена.";
+    return formatTaskCard(task, project?.name ?? "Неизвестный список");
+  } catch {
+    return "✅ Задача обновлена.";
+  }
+}
 
 function editMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -265,11 +371,14 @@ async function processVoice(ctx: BotContext, fileId: string): Promise<void> {
   const processingMsg = await ctx.reply("🎙 Распознаю голосовое...");
   const chatId = ctx.chat!.id;
 
+  ctx.logger.info({ userId: ctx.from!.id, fileId }, "Voice message received");
+
   let text: string;
   try {
     const file = await ctx.api.getFile(fileId);
-    const fileUrl = `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`;
+    const fileUrl = `https://api.telegram.org/file/bot${appConfig.BOT_TOKEN}/${file.file_path}`;
     text = await transcribeOgg(fileUrl);
+    ctx.logger.info({ userId: ctx.from!.id, transcribed: text }, "Voice transcribed");
   } catch (err) {
     ctx.logger.error({ err }, "Voice transcription failed");
     await ctx.api.editMessageText(chatId, processingMsg.message_id, "❌ Не удалось распознать голосовое сообщение.");
@@ -284,7 +393,7 @@ async function processVoice(ctx: BotContext, fileId: string): Promise<void> {
   await ctx.api.editMessageText(chatId, processingMsg.message_id, `🎙 Распознано: "${text}"\n\n⏳ Анализирую...`);
 
   try {
-    const routed = await routeTask(text, ctx.from!.id, ctx.ticktickTokenRepo, ctx.logger);
+    const routed = await routeTask(text, ctx.from!.id, ctx.ticktickTokenRepo, ctx.scheduledTaskRepo, ctx.logger);
 
     if (routed.type === "create") {
       await ctx.api.editMessageText(

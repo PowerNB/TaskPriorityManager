@@ -28,6 +28,11 @@ export interface TickTickTask {
   tags?: string[];
   content?: string;
   items?: TickTickChecklistItem[];
+  dueDate?: string;   // ISO 8601: "2026-04-28T15:00:00+0000"
+  startDate?: string; // ISO 8601
+  isAllDay?: boolean;
+  timeZone?: string;
+  status?: number;    // 0=active, 2=completed
 }
 
 export function buildAuthUrl(clientId: string, state: string): string {
@@ -187,7 +192,7 @@ export class TickTickClient {
   }
 
   durationTag(duration: string): string {
-    return DURATION_TAGS[duration] ?? duration;
+    return (DURATION_TAGS as Record<string, string>)[duration] ?? duration;
   }
 
   async getProjectTasks(projectId: string): Promise<{ tasks: TickTickTask[] }> {

@@ -1,6 +1,7 @@
 import { callOllama, parseJson } from "../../ollama/client.js";
 import { minutesToDurationBucket, DURATION_TAGS } from "../../ticktick/projects.js";
 import type { TaskAnalysis, ParsedUserHints, TaskIntentAnalysis } from "../types/index.js";
+import { appConfig } from "../../config.js";
 
 // Extracts explicit duration mentions from user text (returns minutes)
 const DURATION_HINT_PATTERNS: { pattern: RegExp; minutes: number }[] = [
@@ -144,8 +145,9 @@ export async function analyzeTask(
 
 function buildPrompt(taskText: string, hints: ParsedUserHints): string {
   const now = new Date();
-  const dateStr = now.toLocaleDateString("ru-RU", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-  const timeStr = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const tz = appConfig.USER_TIMEZONE;
+  const dateStr = now.toLocaleDateString("ru-RU", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz });
+  const timeStr = now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: tz });
 
   const hintsSection = [
     hints.complexity ? `- Complexity: ${hints.complexity}` : "",

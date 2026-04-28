@@ -3,7 +3,7 @@ import { InlineKeyboard } from "grammy";
 import type { BotContext } from "../context.js";
 import type { TickTickTokenRepository } from "../repositories/ticktick-token.repository.js";
 import { createTickTickClient } from "../../ticktick/client.js";
-import { DURATION_TAGS } from "../../ticktick/projects.js";
+import { DURATION_TAGS, minutesToDurationBucket } from "../../ticktick/projects.js";
 import { manualMenuKeyboard } from "../helpers/keyboards.js";
 
 type ManualConversation = Conversation<BotContext, BotContext>;
@@ -62,24 +62,26 @@ export function makeManualEditConversation(tokenRepo: TickTickTokenRepository) {
 
       } else if (field === "mef:duration") {
         const kb = new InlineKeyboard()
-          .text("5 минут",  "med:5min").row()
-          .text("30 минут", "med:30min").row()
-          .text("1 час",    "med:1hour").row()
-          .text("2 часа+",  "med:2hours+").row();
+          .text("до 5 минут",      "med:5").row()
+          .text("до 30 минут",     "med:30").row()
+          .text("до 1 часа",       "med:60").row()
+          .text("до 2-х часов",    "med:120").row()
+          .text("более 2-х часов", "med:150").row();
         await ctx.reply("Выбери временной тег:", { reply_markup: kb });
 
         const tagCtx = await conversation.waitFor("callback_query:data");
         const tagData = tagCtx.callbackQuery.data;
         await tagCtx.answerCallbackQuery();
-        const duration = tagData.replace("med:", "");
+        const minutes = parseInt(tagData.replace("med:", ""));
+        const bucket = minutesToDurationBucket(minutes);
 
         await conversation.external(async () => {
           const token = await tokenRepo.findByUserId(userId);
           if (!token) return;
           const client = createTickTickClient(token, userId, tokenRepo);
-          await client.updateTask(taskId, { projectId, tags: [DURATION_TAGS[duration] ?? duration] });
+          await client.updateTask(taskId, { projectId, tags: [DURATION_TAGS[bucket]] });
         });
-        await ctx.reply(`✅ Тег изменён`);
+        await ctx.reply(`✅ Тег изменён на "${DURATION_TAGS[bucket]}"`);
 
       } else if (field === "mef:project") {
         const projects = await conversation.external(async () => {

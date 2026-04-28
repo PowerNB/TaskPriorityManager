@@ -12,6 +12,8 @@ import {
 import { makeManualCreateConversation } from "../conversations/manual-create.conversation.js";
 import { makeManualCreateProjectConversation } from "../conversations/manual-create-project.conversation.js";
 import { makeManualEditConversation } from "../conversations/manual-edit.conversation.js";
+import { getTasksToday, getTasksThisWeek } from "../services/task-list.service.js";
+import { formatTaskListCard } from "../helpers/format.js";
 
 export function createManualFeature(tokenRepo: TickTickTokenRepository): Composer<BotContext> {
   const composer = new Composer<BotContext>();
@@ -80,6 +82,56 @@ export function createManualFeature(tokenRepo: TickTickTokenRepository): Compose
     const project = projects.find((p) => p.id === projectId);
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("manualCreateConversation", { projectId, projectName: project?.name });
+  });
+
+  // TODAY
+  composer.callbackQuery("manual:today", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const msg = await ctx.editMessageText("⏳ Загружаю задачи на сегодня...");
+    try {
+      const tasks = await getTasksToday(ctx.from!.id, tokenRepo);
+      if (tasks.length === 0) {
+        await ctx.editMessageText("📅 На сегодня задач нет.", { reply_markup: manualMenuKeyboard() });
+        return;
+      }
+      const today = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+      const cards = tasks.map((t) => formatTaskListCard(t)).join("\n\n─────────────\n\n");
+      await ctx.editMessageText(`📅 Задачи на сегодня (${today}):\n\n${cards}`, { reply_markup: manualMenuKeyboard() });
+    } catch {
+      await ctx.editMessageText("❌ Не удалось загрузить задачи.", { reply_markup: manualMenuKeyboard() });
+    }
+  });
+
+  // WEEK
+  composer.callbackQuery("manual:week", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText("⏳ Загружаю задачи на неделю...");
+    try {
+      const tasks = await getTasksThisWeek(ctx.from!.id, tokenRepo);
+      if (tasks.length === 0) {
+        await ctx.editMessageText("🗓 На этой неделе задач нет.", { reply_markup: manualMenuKeyboard() });
+        return;
+      }
+
+      // Group by day
+      const byDay = new Map<string, typeof tasks>();
+      for (const t of tasks) {
+        const key = new Date(t.dueDate!).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
+        if (!byDay.has(key)) byDay.set(key, []);
+        byDay.get(key)!.push(t);
+      }
+
+      const lines: string[] = [`🗓 Задачи на неделю:\n`];
+      for (const [day, dayTasks] of byDay) {
+        lines.push(`📆 ${day}`);
+        for (const t of dayTasks) lines.push(formatTaskListCard(t));
+        lines.push("");
+      }
+
+      await ctx.editMessageText(lines.join("\n").trim(), { reply_markup: manualMenuKeyboard() });
+    } catch {
+      await ctx.editMessageText("❌ Не удалось загрузить задачи.", { reply_markup: manualMenuKeyboard() });
+    }
   });
 
   // LIST — show real projects

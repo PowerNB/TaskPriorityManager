@@ -31,4 +31,8 @@ export class TickTickTokenRepository {
   async delete(userId: number): Promise<void> {
     await this.prisma.tickTickToken.deleteMany({ where: { userId } });
   }
+
+  async findAll(): Promise<TickTickToken[]> {
+    return this.prisma.tickTickToken.findMany();
+  }
 }

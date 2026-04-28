@@ -17,6 +17,8 @@ export function settingsMenuKeyboard(): InlineKeyboard {
 export function manualMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
     .text("➕ Создать задачу", "manual:create").row()
+    .text("📅 Задачи на сегодня", "manual:today").row()
+    .text("🗓 Задачи на неделю", "manual:week").row()
     .text("📋 Мои задачи", "manual:list").row()
     .text("✏️ Редактировать задачу", "manual:edit").row()
     .text("🗑 Удалить задачу", "manual:delete").row()
