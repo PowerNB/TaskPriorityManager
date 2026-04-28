@@ -1,14 +1,18 @@
 import type { Logger } from "pino";
 import { analyzeTask, analyzeIntent, extractUserHints } from "./task-analyzer.js";
+import { getTasksToday, getTasksThisWeek } from "./task-list.service.js";
 import { createTickTickClient } from "../../ticktick/client.js";
 import type { TickTickTask, TickTickChecklistItem } from "../../ticktick/client.js";
-import { LISTS, DURATION_TAGS } from "../../ticktick/projects.js";
+import { LISTS, DURATION_TAGS, minutesToDurationBucket } from "../../ticktick/projects.js";
 import type { TickTickTokenRepository } from "../repositories/ticktick-token.repository.js";
+import type { ScheduledTaskRepository } from "../repositories/scheduled-task.repository.js";
 import type { TaskAnalysis, Subtask, TaskIntentAnalysis } from "../types/index.js";
 
 export interface TaskResult {
   analysis: TaskAnalysis;
   projectName: string;
+  createdId?: string;
+  projectId?: string;
 }
 
 export interface ActionResult {
@@ -23,7 +27,9 @@ export async function routeTask(
   taskText: string,
   userId: number,
   tokenRepo: TickTickTokenRepository,
-  logger: Logger
+  scheduledTaskRepo: ScheduledTaskRepository,
+  logger: Logger,
+  forcedTask?: { id: string; projectId: string; title: string }
 ): Promise<{ type: "create"; result: TaskResult } | { type: "action"; result: ActionResult }> {
   const token = await tokenRepo.findByUserId(userId);
   if (!token) throw new Error("NOT_CONNECTED");
@@ -32,11 +38,21 @@ export async function routeTask(
   logger.debug({ intentAnalysis }, "Intent analysis");
 
   if (intentAnalysis.intent === "create") {
-    const result = await processTask(taskText, userId, tokenRepo, logger);
+    const result = await processTask(taskText, userId, tokenRepo, scheduledTaskRepo, logger);
     return { type: "create", result };
   }
 
   const client = createTickTickClient(token, userId, tokenRepo);
+
+  if (intentAnalysis.intent === "today") {
+    const tasks = await getTasksToday(userId, tokenRepo);
+    return { type: "action", result: { intent: "today", status: "found", tasks, intentAnalysis } };
+  }
+
+  if (intentAnalysis.intent === "week") {
+    const tasks = await getTasksThisWeek(userId, tokenRepo);
+    return { type: "action", result: { intent: "week", status: "found", tasks, intentAnalysis } };
+  }
 
   if (intentAnalysis.intent === "list") {
     const projects = await client.getProjects();
@@ -64,6 +80,30 @@ export async function routeTask(
       type: "action",
       result: { intent: "list", status: "found", tasks: tasksWithNames, intentAnalysis },
     };
+  }
+
+  // If a forced task is provided (pronoun reference) — skip search and use it directly
+  if (forcedTask) {
+    const projects = await client.getProjects();
+    const projectMap = new Map(projects.map((p) => [p.id, p.name]));
+    const tasks = [{ ...forcedTask, projectName: projectMap.get(forcedTask.projectId) }];
+
+    if (intentAnalysis.intent === "edit" && intentAnalysis.needsMoreInfo) {
+      return { type: "action", result: { intent: "edit", status: "needs_info", tasks, intentAnalysis } };
+    }
+
+    const editHasFields = intentAnalysis.intent === "edit" &&
+      intentAnalysis.editFields && Object.keys(intentAnalysis.editFields).length > 0;
+
+    if (intentAnalysis.intent !== "edit" || editHasFields) {
+      await executeAction(intentAnalysis, forcedTask, client);
+      const verb = intentAnalysis.intent === "delete" ? "удалена"
+        : intentAnalysis.intent === "complete" ? "завершена"
+        : "обновлена";
+      return { type: "action", result: { intent: intentAnalysis.intent, status: "done", message: `✅ Задача "${forcedTask.title}" ${verb}.` } };
+    }
+
+    return { type: "action", result: { intent: intentAnalysis.intent, status: "found", tasks, intentAnalysis } };
   }
 
   const query = intentAnalysis.taskQuery ?? taskText;
@@ -119,8 +159,9 @@ export async function executeAction(
   } else if (intentAnalysis.intent === "edit") {
     const updates: Partial<TickTickTask> = {};
     if (intentAnalysis.editFields?.title) updates.title = intentAnalysis.editFields.title;
-    if (intentAnalysis.editFields?.duration) {
-      updates.tags = [DURATION_TAGS[intentAnalysis.editFields.duration] ?? intentAnalysis.editFields.duration];
+    if (intentAnalysis.editFields?.estimatedMinutes) {
+      const bucket = minutesToDurationBucket(intentAnalysis.editFields.estimatedMinutes);
+      updates.tags = [DURATION_TAGS[bucket]];
     }
     if (intentAnalysis.editFields?.projectName) {
       const project = await client.getOrCreateProject(intentAnalysis.editFields.projectName);
@@ -134,6 +175,7 @@ export async function processTask(
   taskText: string,
   userId: number,
   tokenRepo: TickTickTokenRepository,
+  scheduledTaskRepo: ScheduledTaskRepository,
   logger: Logger
 ): Promise<TaskResult> {
   const token = await tokenRepo.findByUserId(userId);
@@ -144,28 +186,39 @@ export async function processTask(
   logger.debug({ analysis }, "Task analysis complete");
 
   const client = createTickTickClient(token, userId, tokenRepo);
-  const durationTag = DURATION_TAGS[analysis.duration];
-
-  const targetListName =
-    analysis.taskType === "calendar" ? LISTS.calendar :
-    analysis.taskType === "project"  ? LISTS.project :
-    LISTS.simple;
+  const targetListName = analysis.dueDate ? LISTS.calendar : LISTS.inbox;
 
   const targetProject = await client.getOrCreateProject(targetListName);
 
-  const items: TickTickChecklistItem[] = analysis.taskType === "project" && analysis.subtasks?.length
+  const items: TickTickChecklistItem[] = analysis.subtasks?.length
     ? buildChecklistItems(analysis.subtasks)
     : [];
 
-  await client.createTask({
+  const created = await client.createTask({
     title: analysis.taskTitle,
     projectId: targetProject.id,
     priority: 0,
-    tags: [durationTag],
+    tags: analysis.tags,
     ...(items.length > 0 && { items }),
+    ...(analysis.dueDate && {
+      dueDate: analysis.dueDate,
+      startDate: analysis.dueDate,
+      isAllDay: analysis.isAllDay ?? false,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }),
   });
 
-  return { analysis, projectName: targetListName };
+  if (analysis.dueDate && created.id) {
+    await scheduledTaskRepo.save({
+      userId,
+      ticktickId: created.id,
+      title: analysis.taskTitle,
+      dueDate: new Date(analysis.dueDate),
+      isAllDay: analysis.isAllDay ?? false,
+    }).catch(() => {});
+  }
+
+  return { analysis, projectName: targetListName, createdId: created.id, projectId: targetProject.id };
 }
 
 function buildChecklistItems(subtasks: Subtask[], depth = 0): TickTickChecklistItem[] {
