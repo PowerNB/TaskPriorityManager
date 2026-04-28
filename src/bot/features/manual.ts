@@ -7,7 +7,7 @@ import {
   manualMenuKeyboard,
   projectsKeyboard,
   tasksKeyboard,
-  taskListKeyboard,
+  taskCardKeyboard,
   mainMenuKeyboard,
 } from "../helpers/keyboards.js";
 import { makeManualCreateConversation } from "../conversations/manual-create.conversation.js";
@@ -88,7 +88,7 @@ export function createManualFeature(tokenRepo: TickTickTokenRepository): Compose
   // TODAY
   composer.callbackQuery("manual:today", async (ctx) => {
     await ctx.answerCallbackQuery();
-    const msg = await ctx.editMessageText("⏳ Загружаю задачи на сегодня...");
+    await ctx.editMessageText("⏳ Загружаю задачи на сегодня...");
     try {
       const tasks = await getTasksToday(ctx.from!.id, tokenRepo);
       if (tasks.length === 0) {
@@ -96,8 +96,11 @@ export function createManualFeature(tokenRepo: TickTickTokenRepository): Compose
         return;
       }
       const today = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
-      const cards = tasks.map((t) => formatTaskListCard(t)).join("\n\n─────────────\n\n");
-      await ctx.editMessageText(`📅 Задачи на сегодня (${today}):\n\n${cards}`, { reply_markup: taskListKeyboard(tasks, "manual:today") });
+      await ctx.editMessageText(`📅 Задачи на сегодня (${today}): ${tasks.length}`);
+      for (const t of tasks) {
+        if (!t.id) continue;
+        await ctx.reply(formatTaskListCard(t), { reply_markup: taskCardKeyboard({ id: t.id, projectId: t.projectId }) });
+      }
     } catch {
       await ctx.editMessageText("❌ Не удалось загрузить задачи.", { reply_markup: manualMenuKeyboard() });
     }
@@ -113,23 +116,11 @@ export function createManualFeature(tokenRepo: TickTickTokenRepository): Compose
         await ctx.editMessageText("🗓 На этой неделе задач нет.", { reply_markup: manualMenuKeyboard() });
         return;
       }
-
-      // Group by day
-      const byDay = new Map<string, typeof tasks>();
+      await ctx.editMessageText(`🗓 Задачи на неделю: ${tasks.length}`);
       for (const t of tasks) {
-        const key = new Date(t.dueDate!).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
-        if (!byDay.has(key)) byDay.set(key, []);
-        byDay.get(key)!.push(t);
+        if (!t.id) continue;
+        await ctx.reply(formatTaskListCard(t), { reply_markup: taskCardKeyboard({ id: t.id, projectId: t.projectId }) });
       }
-
-      const lines: string[] = [`🗓 Задачи на неделю:\n`];
-      for (const [day, dayTasks] of byDay) {
-        lines.push(`📆 ${day}`);
-        for (const t of dayTasks) lines.push(formatTaskListCard(t));
-        lines.push("");
-      }
-
-      await ctx.editMessageText(lines.join("\n").trim(), { reply_markup: taskListKeyboard(tasks, "manual:week") });
     } catch {
       await ctx.editMessageText("❌ Не удалось загрузить задачи.", { reply_markup: manualMenuKeyboard() });
     }

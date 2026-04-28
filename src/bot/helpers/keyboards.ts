@@ -36,21 +36,11 @@ export function projectsKeyboard(action: string, projects: { id: string; name: s
   return kb;
 }
 
-export function taskListKeyboard(
-  tasks: { id?: string; title: string; projectId?: string }[],
-  backCallback: string
-): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  for (const task of tasks) {
-    if (!task.id) continue;
-    const pid = task.projectId ?? "";
-    kb.text(`✏️ ${task.title.slice(0, 30)}`, `tl:edit:${task.id}:${pid}`)
-      .text("🗑", `tl:delete:${task.id}:${pid}`)
-      .text("✅", `tl:complete:${task.id}:${pid}`)
-      .row();
-  }
-  kb.text("◀️ Назад", backCallback);
-  return kb;
+export function taskCardKeyboard(task: { id: string; projectId: string }): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✏️ Редактировать", `tl:edit:${task.id}:${task.projectId}`)
+    .text("🗑 Удалить", `tl:delete:${task.id}:${task.projectId}`)
+    .text("✅ Завершить", `tl:complete:${task.id}:${task.projectId}`);
 }
 
 export function tasksKeyboard(

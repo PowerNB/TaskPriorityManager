@@ -2,7 +2,7 @@ import { Composer, InlineKeyboard } from "grammy";
 import type { BotContext } from "../context.js";
 import { routeTask, executeAction } from "../services/task.service.js";
 import { formatTaskResult, formatTaskCard, formatTaskListCard } from "../helpers/format.js";
-import { taskListKeyboard } from "../helpers/keyboards.js";
+import { taskCardKeyboard } from "../helpers/keyboards.js";
 import { createTickTickClient } from "../../ticktick/client.js";
 import { DURATION_TAGS, minutesToDurationBucket } from "../../ticktick/projects.js";
 import type { TaskIntentAnalysis } from "../types/index.js";
@@ -131,39 +131,22 @@ feature.on("message:text", async (ctx, next) => {
       return;
     }
 
-    if (result.intent === "today") {
+    if (result.intent === "today" || result.intent === "week") {
       const tasks = result.tasks ?? [];
-      ctx.logger.info({ userId: ctx.from.id, count: tasks.length }, "Today tasks requested");
+      const isToday = result.intent === "today";
+      ctx.logger.info({ userId: ctx.from.id, count: tasks.length }, isToday ? "Today tasks requested" : "Week tasks requested");
       if (tasks.length === 0) {
-        await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, "📅 На сегодня задач нет.", { reply_markup: afterActionKeyboard() });
+        await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, isToday ? "📅 На сегодня задач нет." : "🗓 На этой неделе задач нет.", { reply_markup: afterActionKeyboard() });
         return;
       }
-      const today = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
-      const cards = tasks.map((t) => formatTaskListCard(t)).join("\n\n─────────────\n\n");
-      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, `📅 Задачи на сегодня (${today}):\n\n${cards}`, { reply_markup: taskListKeyboard(tasks, "manual:menu") });
-      return;
-    }
-
-    if (result.intent === "week") {
-      const tasks = result.tasks ?? [];
-      ctx.logger.info({ userId: ctx.from.id, count: tasks.length }, "Week tasks requested");
-      if (tasks.length === 0) {
-        await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, "🗓 На этой неделе задач нет.", { reply_markup: afterActionKeyboard() });
-        return;
-      }
-      const byDay = new Map<string, typeof tasks>();
+      const header = isToday
+        ? `📅 Задачи на сегодня (${new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}): ${tasks.length}`
+        : `🗓 Задачи на неделю: ${tasks.length}`;
+      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, header);
       for (const t of tasks) {
-        const key = new Date(t.dueDate!).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
-        if (!byDay.has(key)) byDay.set(key, []);
-        byDay.get(key)!.push(t);
+        if (!t.id) continue;
+        await ctx.reply(formatTaskListCard(t), { reply_markup: taskCardKeyboard({ id: t.id, projectId: t.projectId }) });
       }
-      const lines: string[] = ["🗓 Задачи на неделю:\n"];
-      for (const [day, dayTasks] of byDay) {
-        lines.push(`📆 ${day}`);
-        for (const t of dayTasks) lines.push(formatTaskListCard(t));
-        lines.push("");
-      }
-      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, lines.join("\n").trim(), { reply_markup: taskListKeyboard(tasks, "manual:menu") });
       return;
     }
 
