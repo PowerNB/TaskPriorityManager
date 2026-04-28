@@ -7,6 +7,7 @@ import {
   manualMenuKeyboard,
   projectsKeyboard,
   tasksKeyboard,
+  taskListKeyboard,
   mainMenuKeyboard,
 } from "../helpers/keyboards.js";
 import { makeManualCreateConversation } from "../conversations/manual-create.conversation.js";
@@ -96,7 +97,7 @@ export function createManualFeature(tokenRepo: TickTickTokenRepository): Compose
       }
       const today = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
       const cards = tasks.map((t) => formatTaskListCard(t)).join("\n\n─────────────\n\n");
-      await ctx.editMessageText(`📅 Задачи на сегодня (${today}):\n\n${cards}`, { reply_markup: manualMenuKeyboard() });
+      await ctx.editMessageText(`📅 Задачи на сегодня (${today}):\n\n${cards}`, { reply_markup: taskListKeyboard(tasks, "manual:today") });
     } catch {
       await ctx.editMessageText("❌ Не удалось загрузить задачи.", { reply_markup: manualMenuKeyboard() });
     }
@@ -128,7 +129,7 @@ export function createManualFeature(tokenRepo: TickTickTokenRepository): Compose
         lines.push("");
       }
 
-      await ctx.editMessageText(lines.join("\n").trim(), { reply_markup: manualMenuKeyboard() });
+      await ctx.editMessageText(lines.join("\n").trim(), { reply_markup: taskListKeyboard(tasks, "manual:week") });
     } catch {
       await ctx.editMessageText("❌ Не удалось загрузить задачи.", { reply_markup: manualMenuKeyboard() });
     }

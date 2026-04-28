@@ -2,6 +2,7 @@ import { Composer, InlineKeyboard } from "grammy";
 import type { BotContext } from "../context.js";
 import { routeTask, executeAction } from "../services/task.service.js";
 import { formatTaskResult, formatTaskCard, formatTaskListCard } from "../helpers/format.js";
+import { taskListKeyboard } from "../helpers/keyboards.js";
 import { createTickTickClient } from "../../ticktick/client.js";
 import { DURATION_TAGS, minutesToDurationBucket } from "../../ticktick/projects.js";
 import type { TaskIntentAnalysis } from "../types/index.js";
@@ -139,7 +140,7 @@ feature.on("message:text", async (ctx, next) => {
       }
       const today = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
       const cards = tasks.map((t) => formatTaskListCard(t)).join("\n\n─────────────\n\n");
-      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, `📅 Задачи на сегодня (${today}):\n\n${cards}`, { reply_markup: afterActionKeyboard() });
+      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, `📅 Задачи на сегодня (${today}):\n\n${cards}`, { reply_markup: taskListKeyboard(tasks, "manual:menu") });
       return;
     }
 
@@ -162,7 +163,7 @@ feature.on("message:text", async (ctx, next) => {
         for (const t of dayTasks) lines.push(formatTaskListCard(t));
         lines.push("");
       }
-      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, lines.join("\n").trim(), { reply_markup: afterActionKeyboard() });
+      await ctx.api.editMessageText(ctx.chat.id, processingMsg.message_id, lines.join("\n").trim(), { reply_markup: taskListKeyboard(tasks, "manual:menu") });
       return;
     }
 
@@ -248,6 +249,51 @@ feature.callbackQuery(/^ta:([^:]+):(\d+)$/, async (ctx) => {
     await ctx.editMessageText(`✅ Задача "${task.title}" ${verb}.`, { reply_markup: afterActionKeyboard() });
   } catch (err) {
     ctx.logger.error({ err }, "Failed to execute action");
+    await ctx.editMessageText("❌ Ошибка при выполнении действия.");
+  }
+});
+
+// Task list actions: edit / delete / complete from today/week list
+feature.callbackQuery(/^tl:(edit|delete|complete):([^:]+):([^:]*)$/, async (ctx) => {
+  const [, action, taskId, projectId] = ctx.match;
+  await ctx.answerCallbackQuery();
+
+  if (action === "edit") {
+    ctx.session.editingTask = { taskId, projectId, taskTitle: taskId };
+    // Fetch actual title
+    try {
+      const token = await ctx.ticktickTokenRepo.findByUserId(ctx.from.id);
+      if (token) {
+        const client = createTickTickClient(token, ctx.from.id, ctx.ticktickTokenRepo);
+        const data = await client.getProjectTasks(projectId);
+        const task = (data.tasks ?? []).find((t) => t.id === taskId);
+        if (task) ctx.session.editingTask = { taskId, projectId, taskTitle: task.title };
+      }
+    } catch { /* use taskId as fallback title */ }
+
+    const title = ctx.session.editingTask?.taskTitle ?? taskId;
+    await ctx.editMessageText(`✏️ Редактирование: "${title}"\n\nЧто хочешь изменить?`, {
+      reply_markup: editMenuKeyboard(),
+    });
+    return;
+  }
+
+  try {
+    const token = await ctx.ticktickTokenRepo.findByUserId(ctx.from.id);
+    if (!token) return;
+    const client = createTickTickClient(token, ctx.from.id, ctx.ticktickTokenRepo);
+
+    if (action === "delete") {
+      await client.deleteTask(projectId, taskId);
+      ctx.logger.info({ userId: ctx.from.id, taskId, projectId }, "Task deleted from list");
+      await ctx.editMessageText("✅ Задача удалена.", { reply_markup: afterActionKeyboard() });
+    } else if (action === "complete") {
+      await client.completeTask(taskId, projectId);
+      ctx.logger.info({ userId: ctx.from.id, taskId, projectId }, "Task completed from list");
+      await ctx.editMessageText("✅ Задача завершена!", { reply_markup: afterActionKeyboard() });
+    }
+  } catch (err) {
+    ctx.logger.error({ err }, "Failed to execute list task action");
     await ctx.editMessageText("❌ Ошибка при выполнении действия.");
   }
 });
