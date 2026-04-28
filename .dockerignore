@@ -1,0 +1,7 @@
+node_modules
+dist
+.env
+logs
+prisma/dev.db
+prisma/dev.db-journal
+whisper-server
