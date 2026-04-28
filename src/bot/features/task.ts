@@ -9,6 +9,7 @@ import type { TaskIntentAnalysis } from "../types/index.js";
 import type { TickTickTask } from "../../ticktick/client.js";
 import { transcribeOgg } from "../../voice/transcriber.js";
 import { appConfig } from "../../config.js";
+import { localDateToUtcIso } from "../../utils/date.js";
 import { refersToLastTask, parseDateText } from "../services/task-analyzer.js";
 
 const composer = new Composer<BotContext>();
@@ -59,10 +60,11 @@ feature.on("message:text", async (ctx, next) => {
       const token = await ctx.ticktickTokenRepo.findByUserId(ctx.from.id);
       if (!token) { await ctx.reply("TickTick не подключён"); return; }
       const client = createTickTickClient(token, ctx.from.id, ctx.ticktickTokenRepo);
+      const utcDue = localDateToUtcIso(parsed.dueDate);
       await client.updateTask(editing.taskId, {
         projectId: editing.projectId,
-        dueDate: parsed.dueDate,
-        startDate: parsed.dueDate,
+        dueDate: utcDue,
+        startDate: utcDue,
         isAllDay: parsed.isAllDay ?? false,
         timeZone: appConfig.USER_TIMEZONE,
       });
