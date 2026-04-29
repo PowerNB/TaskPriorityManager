@@ -10,6 +10,8 @@ import { TickTickTokenRepository } from "./repositories/ticktick-token.repositor
 import { WhitelistRepository } from "./repositories/whitelist.repository.js";
 import { ScheduledTaskRepository } from "./repositories/scheduled-task.repository.js";
 import { WeeklyReportRepository } from "./repositories/weekly-report.repository.js";
+import { BotUserRepository } from "./repositories/bot-user.repository.js";
+import { BotTaskRepository } from "./repositories/bot-task.repository.js";
 import { authMiddleware } from "./middleware/auth.mw.js";
 import { startFeature } from "./features/start.js";
 import { createConnectFeature } from "./features/connect.js";
@@ -30,6 +32,8 @@ export function createBot(prisma: PrismaClient, logger: Logger): { bot: Bot<BotC
   const whitelistRepo = new WhitelistRepository(prisma);
   const scheduledTaskRepo = new ScheduledTaskRepository(prisma);
   const weeklyReportRepo = new WeeklyReportRepository(prisma);
+  const botUserRepo = new BotUserRepository(prisma);
+  const botTaskRepo = new BotTaskRepository(prisma);
 
   // Inject dependencies into context
   bot.use(async (ctx, next) => {
@@ -41,6 +45,8 @@ export function createBot(prisma: PrismaClient, logger: Logger): { bot: Bot<BotC
     ctx.whitelistRepo = whitelistRepo;
     ctx.scheduledTaskRepo = scheduledTaskRepo;
     ctx.weeklyReportRepo = weeklyReportRepo;
+    ctx.botUserRepo = botUserRepo;
+    ctx.botTaskRepo = botTaskRepo;
     await next();
   });
 

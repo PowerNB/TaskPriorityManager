@@ -193,15 +193,13 @@ Return ONLY valid JSON with no explanations:
 {
   "taskTitle": "Short clear task title",
   "complexity": "low",
-  "estimatedMinutes": 25,
-  "dueDate": "2026-04-28T15:00:00",
-  "isAllDay": false
+  "estimatedMinutes": 25
 }
 
 Rules:
 - taskTitle: task essence only, in the SAME LANGUAGE as the user message. Do NOT include date/time in the title.
 - complexity: "low" | "medium" | "high"
 - estimatedMinutes: realistic estimate in minutes for how long this task will take (any number, e.g. 15, 45, 90)
-- dueDate: ISO 8601 datetime without timezone. Set ONLY if the message contains a specific date, day of week, time, or relative reference (today/tomorrow/evening/in N days). If no date/time mentioned — omit entirely.
+- dueDate: CRITICAL — add this field ONLY when the user explicitly mentions a date, day of week, time, or relative time (today, tomorrow, evening, in N days, next week, etc.). If the message has NO time reference — DO NOT add dueDate at all. When in doubt — omit it.
 - isAllDay: true if only a date was mentioned (no specific time), false if time was specified. Omit if dueDate is not set.`;
 }

@@ -1,14 +1,14 @@
-import type { PrismaClient, User } from "@prisma/client";
+import type { PrismaClient, TelegramUser } from "@prisma/client";
 
 export class UserRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(id: number): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { id } });
+  async findById(id: number): Promise<TelegramUser | null> {
+    return this.prisma.telegramUser.findUnique({ where: { id } });
   }
 
-  async upsert(data: { id: number; username?: string; firstName: string }): Promise<User> {
-    return this.prisma.user.upsert({
+  async upsert(data: { id: number; username?: string; firstName: string }): Promise<TelegramUser> {
+    return this.prisma.telegramUser.upsert({
       where: { id: data.id },
       create: {
         id: data.id,

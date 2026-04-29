@@ -10,6 +10,7 @@ import type { TickTickTask } from "../../ticktick/client.js";
 import { transcribeOgg } from "../../voice/transcriber.js";
 import { appConfig } from "../../config.js";
 import { localDateToUtcIso } from "../../utils/date.js";
+import { minutesToDurationTag } from "../../ticktick/projects.js";
 import { refersToLastTask, parseDateText } from "../services/task-analyzer.js";
 
 const composer = new Composer<BotContext>();
@@ -121,16 +122,29 @@ feature.on("message:text", async (ctx, next) => {
     );
 
     if (routed.type === "create") {
-      ctx.logger.info({ userId: ctx.from.id, title: routed.result.analysis.taskTitle, project: routed.result.projectName, dueDate: routed.result.analysis.dueDate }, "Task created");
+      const { analysis } = routed.result;
+      ctx.logger.info({ userId: ctx.from.id, title: analysis.taskTitle, project: routed.result.projectName, dueDate: analysis.dueDate }, "Task created");
       ctx.session.lastTask = {
         id: routed.result.createdId ?? "",
         projectId: routed.result.projectId ?? "",
-        title: routed.result.analysis.taskTitle,
+        title: analysis.taskTitle,
       };
+
+      // Mirror task to own storage
+      const userId = BigInt(ctx.from.id);
+      await ctx.botUserRepo.upsert({ id: userId, username: ctx.from.username }).catch(() => {});
+      await ctx.botTaskRepo.create({
+        userId,
+        title: analysis.taskTitle,
+        category: "PERSONAL",
+        duration_tag: minutesToDurationTag(analysis.estimatedMinutes ?? 30),
+        due_date: analysis.dueDate ? new Date(analysis.dueDate) : undefined,
+      }).catch((err) => ctx.logger.warn({ err }, "Failed to mirror task to own storage"));
+
       await ctx.api.editMessageText(
         ctx.chat.id,
         processingMsg.message_id,
-        formatTaskResult(routed.result.analysis, routed.result.projectName),
+        formatTaskResult(analysis, routed.result.projectName),
         { reply_markup: afterActionKeyboard() }
       );
       return;

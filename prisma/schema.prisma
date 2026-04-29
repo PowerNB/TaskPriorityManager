@@ -14,19 +14,21 @@ model Session {
   value String
 }
 
-model User {
+model TelegramUser {
   id        Int      @id // Telegram user ID
   username  String?
   firstName String
   createdAt DateTime @default(now())
 
-  settings  UserSettings?
-  ticktick  TickTickToken?
+  settings UserSettings?
+  ticktick TickTickToken?
+
+  @@map("User")
 }
 
 model WhitelistEntry {
-  userId    Int      @id
-  addedAt   DateTime @default(now())
+  userId Int      @id
+  addedAt DateTime @default(now())
 }
 
 model ScheduledTask {
@@ -41,25 +43,25 @@ model ScheduledTask {
 }
 
 model WeeklyReport {
-  id              Int      @id @default(autoincrement())
-  userId          Int
-  weekStart       DateTime // Monday 00:00
-  weekEnd         DateTime // Sunday 23:59
-  totalPlanned    Int
-  totalCompleted  Int
-  totalOverdue    Int
-  onTimePercent   Int
-  reportText      String   // Full formatted report snapshot
-  createdAt       DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  weekStart      DateTime
+  weekEnd        DateTime
+  totalPlanned   Int
+  totalCompleted Int
+  totalOverdue   Int
+  onTimePercent  Int
+  reportText     String
+  createdAt      DateTime @default(now())
 }
 
 model UserSettings {
-  id             Int    @id @default(autoincrement())
-  userId         Int    @unique
-  personalGoals  String @default("")
-  careerGoals    String @default("")
+  id            Int    @id @default(autoincrement())
+  userId        Int    @unique
+  personalGoals String @default("")
+  careerGoals   String @default("")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user TelegramUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model TickTickToken {
@@ -68,15 +70,15 @@ model TickTickToken {
   clientId     String
   clientSecret String
   accessToken  String
-  refreshToken String @default("")
+  refreshToken String   @default("")
   expiresAt    DateTime
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user TelegramUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// ─── Own task storage (replaces TickTick) ────────────────────────────────────
+// ─── Own task storage ────────────────────────────────────────────────────────
 
-model BotUser {
+model User {
   id                 BigInt    @id
   username           String?
   timezone           String    @default("UTC+3")
@@ -84,19 +86,21 @@ model BotUser {
   quiet_hours_from   String?
   quiet_hours_to     String?
   last_brief_sent_at DateTime?
-  tasks              BotTask[]
+  tasks              Task[]
   createdAt          DateTime  @default(now())
+
+  @@map("BotUser")
 }
 
-model BotTask {
+model Task {
   id           String      @id @default(cuid())
   userId       BigInt
-  user         BotUser     @relation(fields: [userId], references: [id])
+  user         User        @relation(fields: [userId], references: [id])
 
-  title        String
-  category     TaskCategory
+  title        String      @db.VarChar(200)
+  category     Category
   duration_tag DurationTag
-  status       TaskStatus  @default(ACTIVE)
+  status       Status      @default(ACTIVE)
 
   elo_score    Int         @default(1000)
 
@@ -113,9 +117,11 @@ model BotTask {
   archived_at      DateTime?
 
   createdAt DateTime @default(now())
+
+  @@map("BotTask")
 }
 
-enum TaskCategory {
+enum Category {
   CAREER
   PERSONAL
 }
@@ -128,7 +134,7 @@ enum DurationTag {
   PROJECT
 }
 
-enum TaskStatus {
+enum Status {
   ACTIVE
   FROZEN
   ARCHIVED

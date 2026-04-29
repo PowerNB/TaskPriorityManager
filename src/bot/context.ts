@@ -8,6 +8,8 @@ import type { TickTickTokenRepository } from "./repositories/ticktick-token.repo
 import type { WhitelistRepository } from "./repositories/whitelist.repository.js";
 import type { ScheduledTaskRepository } from "./repositories/scheduled-task.repository.js";
 import type { WeeklyReportRepository } from "./repositories/weekly-report.repository.js";
+import type { BotUserRepository } from "./repositories/bot-user.repository.js";
+import type { BotTaskRepository } from "./repositories/bot-task.repository.js";
 import type { TaskIntentAnalysis } from "./types/index.js";
 
 export interface SessionData {
@@ -30,5 +32,7 @@ export type BotContext = ConversationFlavor<
       whitelistRepo: WhitelistRepository;
       scheduledTaskRepo: ScheduledTaskRepository;
       weeklyReportRepo: WeeklyReportRepository;
+      botUserRepo: BotUserRepository;
+      botTaskRepo: BotTaskRepository;
     }
 >;

@@ -34,3 +34,13 @@ export function minutesToDurationBucket(minutes: number): DurationBucket {
   if (minutes <= 120) return "2hours";
   return "2hours+";
 }
+
+import type { DurationTag } from "@prisma/client";
+
+export function minutesToDurationTag(minutes: number): DurationTag {
+  if (minutes <= 5)   return "MIN_5";
+  if (minutes <= 30)  return "MIN_30";
+  if (minutes <= 60)  return "HOUR_1";
+  if (minutes <= 120) return "HOUR_2";
+  return "PROJECT";
+}
